@@ -9,6 +9,7 @@ export type Lang = 'en' | 'rki';
 export interface Settings {
   quality: Quality;
   showFps: boolean;
+  adaptiveResolution:boolean;
   mouseSensitivity: number;
   invertY: boolean;
   cameraDistance: number;
@@ -50,7 +51,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
 
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'high',
-  showFps: true,
+  showFps: false,
+  adaptiveResolution:true,
   mouseSensitivity: 1,
   invertY: false,
   cameraDistance: 5.5,
@@ -85,6 +87,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     quality,
     touchControls:r['touchControls']==='on'?'on':r['touchControls']==='off'?'off':'auto',
     showFps: bool(r['showFps'], d.showFps),
+    adaptiveResolution:bool(r['adaptiveResolution'],true),
     mouseSensitivity: num(r['mouseSensitivity'], 0.1, 3, d.mouseSensitivity),
     invertY: bool(r['invertY'], d.invertY),
     cameraDistance: num(r['cameraDistance'], 2.2, 16, d.cameraDistance),

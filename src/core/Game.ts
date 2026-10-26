@@ -17,6 +17,7 @@ import { RemotePlayers } from '../systems/RemotePlayers';
 import type { PlayerSnapshot } from '../systems/RoomProtocol';
 import { roomPanel } from '../ui/RoomPanel';
 import { Navigation } from '../systems/Navigation';
+import {AdaptiveResolution} from '../systems/AdaptiveResolution';
 import { PerformanceManager } from '../systems/PerformanceManager';
 import { SaveManager, type SaveData } from '../systems/SaveManager';
 import { QUALITY_PRESETS, safeStorage, SettingsStore, type Settings } from '../systems/Settings';
@@ -75,6 +76,8 @@ export class Game {
   private hud!: HUD;
   private fullMap!: FullMap;
   private menu!: MainMenu;
+  private adaptive=new AdaptiveResolution();
+  private touchControls!:TouchControls;
   private pauseMenu!: PauseMenu;
   private manifest: WorldManifest | null = null;
   private beacon!: THREE.Mesh;
@@ -223,7 +226,7 @@ export class Game {
       onOpenMap: () => this.openMap(),
     });
     this.roomBadge=document.createElement('button');this.roomBadge.className='btn room-badge';this.roomBadge.textContent='Rooms · Solo play';this.roomBadge.addEventListener('click',()=>this.openRooms());this.hud.root.append(this.roomBadge);
-    new TouchControls(this.hud.root,this.input,{map:()=>this.openMap(),pause:()=>this.pause()});
+    this.touchControls=new TouchControls(this.hud.root,this.input,{map:()=>this.openMap(),pause:()=>this.pause()});
     this.fullMap = new FullMap(
       this.ui,
       {
@@ -250,6 +253,7 @@ export class Game {
       onLanguage: () => this.settings.update({ language: getLang() === 'en' ? 'rki' : 'en' }),
       onCharacter: (c) => this.settings.update({ character: c }),
     });
+    this.menu.setDestinations(manifest.landmarks.filter(l=>['node/1230796347','node/2318570031','node/4303580092'].includes(l.id)).map(l=>({name:l.ne??l.n,x:l.x,z:l.z})),(x,z)=>{void this.startGame(true).then(()=>this.teleportTo(x,z));});
     const roomsButton=document.createElement('button');roomsButton.className='btn menu-btn';roomsButton.textContent='Play with friends · Rooms';roomsButton.addEventListener('click',()=>this.openRooms());this.menu.el.querySelector('.menu-buttons')!.append(roomsButton);
     this.pauseMenu = new PauseMenu(this.ui, {
       onResume: () => this.resume(),
@@ -303,7 +307,8 @@ export class Game {
     const touch=s.touchControls==='on'||(s.touchControls==='auto'&&matchMedia('(pointer: coarse)').matches);
     document.documentElement.classList.toggle('touch-enabled',touch);document.documentElement.classList.toggle('touch-disabled',!touch);
     const preset = QUALITY_PRESETS[s.quality];
-    if (!prev || prev.quality !== s.quality) {
+    if (!prev || prev.quality !== s.quality || prev.adaptiveResolution!==s.adaptiveResolution) {
+      this.adaptive.reset();
       this.renderer.setPixelRatio(preset.pixelRatio);
       this.renderer.setShadows(preset.shadowMapSize > 0);
       this.renderer.resize();
@@ -689,6 +694,10 @@ export class Game {
 
   private update(dt: number, alpha: number): void {
     this.perf.frame(dt);
+    if(this.state==='playing'&&!document.hidden&&this.settings.get().adaptiveResolution){
+      const scale=this.adaptive.sample(dt);if(scale!==null){this.renderer.setPixelRatio(QUALITY_PRESETS[this.settings.get().quality].pixelRatio*scale);this.renderer.resize();}
+    }
+
     if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();this.remotePlayers.update(dt,p.x,p.z);}
     if (this.state === 'boot' && !this.world) return;
     const inp = this.input;
@@ -880,6 +889,7 @@ export class Game {
   private updateHud(dt: number, day: number): void {
     const s = this.settings.get();
     const driving = this.vehicles.driving;
+    this.touchControls.setDriving(!!driving);
     const p = this.focusPoint();
     const camDir = this.camera.getWorldDirection(this.tmpV);
     const camHeading = headingFromDirection(camDir.x, camDir.z);

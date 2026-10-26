@@ -35,24 +35,37 @@ export class Modal {
   private readonly body: HTMLElement;
   private readonly titleEl: HTMLElement;
   private readonly closeBtn: HTMLButtonElement;
+  private previousFocus:HTMLElement|null=null;
   onClose: (() => void) | null = null;
 
   constructor(parent: HTMLElement, cls = '') {
     this.titleEl = h('h2');
     this.body = h('div.modal-body');
     this.closeBtn = h('button.btn.icon', { 'aria-label': 'Close', onclick: () => this.close() }, '✕') as HTMLButtonElement;
-    this.el = h(`div.modal-backdrop.hidden${cls ? `.${cls}` : ''}`, {}, h('div.modal.panel', {}, h('div.modal-head', {}, this.titleEl, this.closeBtn), this.body));
+    this.el = h(`div.modal-backdrop.hidden${cls ? `.${cls}` : ''}`, {}, h('div.modal.panel', {role:'dialog','aria-modal':'true','aria-label':'Game dialog'}, h('div.modal-head', {}, this.titleEl, this.closeBtn), this.body));
     this.el.addEventListener('mousedown', (e) => {
       if (e.target === this.el) this.close();
+    });
+    this.el.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();this.close();}
+      if(e.key==='Tab'){
+        const elements=[...this.el.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]')].filter(el=>el.getClientRects().length);
+        const first=elements[0],last=elements.at(-1);
+        if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+        else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+      }
     });
     parent.appendChild(this.el);
   }
 
   open(title: string, content: Node): void {
+    if(!this.isOpen)this.previousFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
     this.titleEl.textContent = title;
+    this.el.querySelector('[role=dialog]')?.setAttribute('aria-label',title);
     this.body.innerHTML = '';
     this.body.appendChild(content);
     this.el.classList.remove('hidden');
+    this.closeBtn.focus();
   }
 
   get isOpen(): boolean {
@@ -62,6 +75,7 @@ export class Modal {
   close(): void {
     if (!this.isOpen) return;
     this.el.classList.add('hidden');
+    this.previousFocus?.focus();
     this.onClose?.();
   }
 }
@@ -136,7 +150,7 @@ export function aboutContent(manifest: WorldManifest | null): HTMLElement {
       h('li', {}, 'Generated / artistic: filler trees inside mapped green and residential areas, streetlights along major roads, window and door details, stupa markers at mapped Buddhist sites without a footprint, the flat terrain (no elevation data).'),
     ),
     h('h3', {}, 'Software'),
-    h('p.small', {}, 'Three.js (MIT), Rapier physics (Apache-2.0), MapLibre GL JS (BSD-3-Clause), Vite (MIT). All 3D models, textures and sounds are generated procedurally in code.'),
+    h('p.small', {}, 'Three.js (MIT), Rapier physics (Apache-2.0), MapLibre GL JS (BSD-3-Clause), Vite (MIT). 3D models and sounds are authored procedurally in code. The flag image was supplied by the user; other surface details use procedural materials.'),
     h('p.small.muted', {}, 'Not affiliated with OpenTaxi or any map provider. The game map uses bundled OSM data. The optional street basemap loads OpenStreetMap tiles. Multiplayer uses PeerJS signaling and WebRTC.'),
   );
 }
@@ -181,16 +195,23 @@ export class MainMenu {
       h(
         'div.menu-card',
         {},
-        h('div.brand-mark.big'),
+        h('div.menu-eyebrow',{},'RAKHINE STATE · MYANMAR'),
         this.title,
         this.subtitle,
+        h('p.menu-intro',{},'Wander the streets. Meet the neighbours. Make yourself at home.'),
         h('div.char-pick', {}, this.charBtns.boy, this.charBtns.girl),
         h('div.menu-buttons', {}, btn('play', cb.onPlay, '.primary'), this.continueBtn, btn('map', cb.onMap), btn('settings', cb.onSettings), btn('controls', cb.onControls), btn('about', cb.onAbout)),
         h('div.menu-foot', {}, this.langBtn, h('span.muted.tiny', { html: 'Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' })),
       ),
     );
+    this.el.append(h('aside.discovery-panel',{},h('div.menu-eyebrow',{},'A CITY TO CALL HOME'),h('h2',{},'Find your own',h('br'),h('em',{},'way through Sittwe.')),h('p',{},'From golden pagodas to the coast, a new corner is always waiting.'),h('div.discovery-stats',{},h('span',{},h('strong',{},'110'),' mapped places'),h('span',{},h('strong',{},'24'),' citizen roles'),h('span',{},h('strong',{},'8'),' players per room')),h('div.destination-list'),h('p.discovery-note',{},'Explore solo or invite friends with a room code.')));
     parent.appendChild(this.el);
     this.refreshText();
+  }
+
+  setDestinations(places:Array<{name:string;x:number;z:number}>,visit:(x:number,z:number)=>void):void {
+    const list=this.el.querySelector('.destination-list')!;
+    list.append(h('div.menu-eyebrow',{},'START EXPLORING'),...places.map((p,i)=>h('button.destination-card',{onclick:()=>visit(p.x,p.z)},h('span.destination-number',{},`0${i+1}`),h('span',{},p.name),h('span',{'aria-hidden':'true'},'↗'))));
   }
 
   refreshText(): void {
@@ -210,6 +231,8 @@ export class MainMenu {
   setCharacter(c: 'boy' | 'girl'): void {
     this.charBtns.boy.classList.toggle('active', c === 'boy');
     this.charBtns.girl.classList.toggle('active', c === 'girl');
+    this.charBtns.boy.setAttribute('aria-pressed',String(c==='boy'));
+    this.charBtns.girl.setAttribute('aria-pressed',String(c==='girl'));
   }
 
   setContinueEnabled(v: boolean): void {
@@ -218,6 +241,7 @@ export class MainMenu {
 
   show(v: boolean): void {
     this.el.classList.toggle('hidden', !v);
+    if(v)this.el.scrollTop=0;
   }
 }
 

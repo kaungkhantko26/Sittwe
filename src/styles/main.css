@@ -296,3 +296,31 @@ select option { color: #000; }
 .touch-enabled .touch-controls { display: block; }
 .touch-disabled .touch-controls { display: none; }
 .touch-enabled .hud-hints { display: none; }
+
+/* Discovery menu */
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #ffd78b;outline-offset:4px;}
+.main-menu {background:linear-gradient(90deg,#08131aeb,#08131a73 58%,#08131ac7);grid-template-columns:minmax(320px,440px) minmax(0,1fr);gap:clamp(28px,6vw,100px);padding:clamp(20px,4vw,64px);overflow-y:auto;}
+.main-menu .menu-card {margin:0;width:100%;max-width:410px;padding:30px;background:#0b1c25ed;border:1px solid #c8ded52c;border-radius:24px;box-shadow:0 20px 70px #0005;}
+.main-menu .title {font-family:'Saira Condensed',var(--font);font-size:clamp(42px,4vw,62px);letter-spacing:.04em;line-height:1.05;}
+.menu-eyebrow {color:#e5bc79;font-size:10px;letter-spacing:.19em;font-weight:700;line-height:1.6;}
+.main-menu .subtitle {margin:8px 0 0;font-size:13px;}
+.menu-intro {font-size:13px;line-height:1.65;color:#b9cacb;margin:16px 0 22px;}
+.main-menu .char-pick {margin-bottom:18px;}
+.main-menu .menu-buttons {grid-template-columns:1fr 1fr;gap:8px;}
+.main-menu .menu-buttons .primary,.main-menu .menu-buttons button:last-child {grid-column:1/-1;}
+.main-menu .menu-btn {font-size:13px;padding:12px 14px;min-height:44px;}
+.main-menu .menu-buttons .primary {padding:15px 18px;font-size:16px;}
+.discovery-panel {max-width:650px;align-self:center;padding:24px 0;}
+.discovery-panel h2 {font-family:Georgia,serif;font-size:clamp(36px,4.6vw,68px);font-weight:400;line-height:1.09;letter-spacing:-.035em;margin:18px 0 22px;text-shadow:0 2px 30px #0007;}
+.discovery-panel h2 em {font-weight:400;color:#f0ce94;}
+.discovery-panel p {color:#c5d2d1;font-size:14px;line-height:1.65;max-width:390px;}
+.discovery-stats {display:flex;gap:26px;border-top:1px solid #ffffff24;border-bottom:1px solid #ffffff24;padding:18px 0;margin:26px 0;font-size:10px;color:#bbc9ca;}
+.discovery-stats strong {display:block;font-size:26px;font-weight:500;color:#fff;margin-bottom:3px;}
+.destination-list {display:grid;gap:8px;max-width:440px;}
+.destination-card {display:flex;gap:18px;align-items:center;width:100%;min-height:54px;padding:14px 16px;border:1px solid #ffffff26;background:#122d36c9;color:#f0eee8;border-radius:12px;font:500 13px var(--font);text-align:left;cursor:pointer;transition:background .2s,border-color .2s;}
+.destination-card:hover {background:#244650;border-color:#e5bc7970;}
+.destination-card span:last-child {margin-left:auto;color:#e5bc79;font-size:20px;}
+.destination-number {font-size:10px;color:#e5bc79;font-variant-numeric:tabular-nums;}
+.discovery-panel .discovery-note {font-size:11px;margin-top:16px;}
+@media(max-width:850px){.main-menu{grid-template-columns:1fr;gap:20px;place-items:center;padding:24px 18px;display:block;}.main-menu .menu-card{margin:0 auto;max-width:450px;max-height:none;}.discovery-panel{max-width:450px;margin:0 auto;padding:26px 8px;}.discovery-panel h2{font-size:36px;}.discovery-stats{margin:18px 0;}.main-menu .title{font-size:48px;}.main-menu .menu-intro{margin:12px 0;}.main-menu .menu-foot{margin-top:14px;}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}

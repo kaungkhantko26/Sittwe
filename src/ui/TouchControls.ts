@@ -3,12 +3,20 @@ import type {InputManager} from '../core/InputManager';
 /** Pointer events cover iOS, iPadOS, Android and touch-enabled laptops. */
 export class TouchControls {
   readonly root=document.createElement('div');
+  private driving:boolean|null=null;
+  setDriving(value:boolean):void {
+    if(value===this.driving)return;this.driving=value;
+    for(const key of ['ControlLeft','KeyG','KeyR','KeyL','KeyX'])this.root.querySelector<HTMLElement>(`[data-key=${key}]`)?.classList.toggle('hidden',!value);
+    for(const key of ['KeyJ','KeyV'])this.root.querySelector<HTMLElement>(`[data-key=${key}]`)?.classList.toggle('hidden',value);
+    this.root.querySelector('[data-key=Space]')!.textContent=value?'↑ Up':'↑ Jump';
+    this.root.querySelector('[data-key=ShiftLeft]')!.textContent=value?'Boost':'Run';
+  }
   constructor(parent:HTMLElement,input:InputManager,actions:{map:()=>void;pause:()=>void}) {
     this.root.className='touch-controls';
     this.root.innerHTML=`<div class="touch-look" aria-label="Drag to look around"></div>
       <div class="touch-joystick" role="group" aria-label="Movement joystick"><div class="touch-stick"></div></div>
       <div class="touch-top"><button aria-label="Open map">Map</button><button aria-label="Pause game">Ⅱ</button></div>
-      <div class="touch-actions"><button data-key="KeyE" aria-label="Interact">E · Use</button><button data-key="KeyF" aria-label="Enter or exit vehicle">Car</button><button data-key="Space" aria-label="Jump or fly up">↑ Jump</button><button data-key="ControlLeft" aria-label="Fly down">↓</button><button data-key="KeyG" aria-label="Toggle flight or land">Fly</button><button data-key="KeyV" aria-label="Spawn vehicle">+ Car</button><button data-key="KeyC" aria-label="Change camera">View</button><button data-key="KeyJ" aria-label="Dance">Dance</button><button data-key="ShiftLeft" aria-label="Sprint or boost">Run</button></div>`;
+      <div class="touch-actions"><button data-key="KeyE" aria-label="Interact">E · Use</button><button data-key="KeyF" aria-label="Enter or exit vehicle">Car</button><button data-key="Space" aria-label="Jump or fly up">↑ Jump</button><button data-key="ControlLeft" aria-label="Fly down">↓</button><button data-key="KeyG" aria-label="Toggle flight or land">Fly</button><button data-key="KeyV" aria-label="Spawn vehicle">+ Car</button><button data-key="KeyR" aria-label="Reset vehicle">Reset</button><button data-key="KeyL" aria-label="Headlights">Lights</button><button data-key="KeyX" aria-label="Handbrake">Brake</button><button data-key="KeyC" aria-label="Change camera">View</button><button data-key="KeyJ" aria-label="Dance">Dance</button><button data-key="ShiftLeft" aria-label="Sprint or boost">Run</button></div>`;
     parent.append(this.root);
     const joystick=this.root.querySelector('.touch-joystick') as HTMLElement,stick=this.root.querySelector('.touch-stick') as HTMLElement;
     let joystickPointer:number|null=null;

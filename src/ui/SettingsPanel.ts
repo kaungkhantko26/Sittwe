@@ -98,7 +98,7 @@ export function settingsContent(store: SettingsStore, hooks: SettingsHooks): HTM
   return h(
     'div.settings',
     {},
-    section('graphics', row(t('quality'), seg), toggle('showFps', 'showFps'), h('p.muted.tiny', {}, t('graphicsReload'))),
+    section('graphics', row(t('quality'), seg), toggle('adaptiveResolution','adaptiveResolution'), toggle('showFps', 'showFps'), h('p.muted.tiny', {}, t('graphicsReload'))),
     section('camera', slider('mouseSensitivity', 'sensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2)), slider('cameraDistance', 'cameraDistance', 2.5, 14, 0.5, (v) => `${v.toFixed(1)} m`), slider('fov', 'fov', 50, 85, 1, (v) => `${v}°`), toggle('invertY', 'invertY')),
     section('timeWeather', row(t('timeOfDay'), todInput, todVal), presets, slider('dayLengthMinutes', 'dayLength', 0, 120, 1, (v) => (v === 0 ? '∞ (paused)' : `${v} min`)), toggle('rain', 'rain')),
     section('audio', slider('masterVolume', 'masterVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), slider('sfxVolume', 'sfxVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), slider('ambienceVolume', 'ambienceVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), toggle('muted', 'mute')),

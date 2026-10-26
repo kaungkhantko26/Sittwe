@@ -32,6 +32,7 @@ const STRINGS = {
   medium: { en: 'Medium', rki: 'အလယ်အလတ်' },
   high: { en: 'High', rki: 'မြင့်' },
   ultra: { en: 'Ultra', rki: 'အမြင့်ဆုံး' },
+  adaptiveResolution: { en: 'Adapt resolution for smoother play', rki: 'ချောမွေ့စေရန် ရုပ်ထွက်ကို အလိုအလျောက်ညှိမည်' },
   showFps: { en: 'Show FPS & diagnostics', rki: 'FPS ပြမည်' },
   camera: { en: 'Camera', rki: 'ကင်မရာ' },
   sensitivity: { en: 'Mouse sensitivity', rki: 'မောက်စ် အာရုံခံနိုင်မှု' },
