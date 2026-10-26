@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-10-26T19:26:41.274Z",
+  "source": "OpenStreetMap via Overpass API",
+  "attribution": "© OpenStreetMap contributors. Data available under the Open Database License (ODbL 1.0).",
+  "regions": [
+    {
+      "label": "Geofabrik extract",
+      "endpoint": "https://download.geofabrik.de/asia/",
+      "retrievedAt": "2026-10-26T19:25:45.990Z",
+      "osmBaseTimestamp": null,
+      "bbox": {
+        "south": 20.10624486555636,
+        "north": 20.186023717367277,
+        "west": 92.8279164259009,
+        "east": 92.91728583491388
+      }
+    },
+    {
+      "label": "coastline",
+      "endpoint": "https://download.geofabrik.de/asia/",
+      "retrievedAt": "2026-10-26T19:25:45.990Z",
+      "osmBaseTimestamp": null,
+      "bbox": {
+        "south": 20.07069124681454,
+        "north": 20.221577336109096,
+        "west": 92.79027109265228,
+        "east": 92.95493116816252
+      }
+    }
+  ],
+  "stats": {
+    "elements": 18344,
+    "roads": 1379,
+    "buildings": 16459,
+    "buildingsHeightFromTag": 0,
+    "buildingsHeightFromLevels": 1,
+    "buildingsHeightEstimated": 16458,
+    "water": 26,
+    "waterways": 30,
+    "landuse": 112,
+    "landmarks": 110,
+    "places": 66,
+    "trees": 158,
+    "streetLamps": 0,
+    "coastlineWays": 0,
+    "skippedMissingGeometry": 1,
+    "skippedUnclosedRelationRings": 0,
+    "skippedUnsupportedHighway": 0,
+    "skippedInvalidCoordinates": 0
+  },
+  "warnings": [],
+  "missingData": {
+    "buildingsWithoutHeightOrLevels": 16458,
+    "waysWithMissingGeometry": 1,
+    "unclosedRelationRings": 0,
+    "unsupportedHighwayTypes": 0,
+    "invalidCoordinates": 0
+  },
+  "inferred": [
+    "Building heights estimated from type/footprint area when no height or building:levels tag exists (see OSMParser.buildingHeight).",
+    "Road widths default per highway class when no width/lanes tag exists (see OSMParser.DEFAULT_ROAD_WIDTH).",
+    "Sea polygons derived from natural=coastline ways (water on the right-hand side of the way direction).",
+    "Terrain is flat at sea level: no elevation model is used."
+  ]
+}

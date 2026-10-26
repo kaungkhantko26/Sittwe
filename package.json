@@ -1,0 +1,35 @@
+{
+  "name": "sittwe-3d",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser-based 3D open-world exploration and driving game set in Sittwe, Rakhine State, Myanmar, built from OpenStreetMap data.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "data:fetch": "tsx scripts/fetch-osm.ts",
+    "data:extract": "tsx scripts/extract-pbf.ts",
+    "data:convert": "tsx scripts/convert-osm.ts",
+    "data:chunks": "tsx scripts/build-chunks.ts",
+    "data:validate": "tsx scripts/validate-map.ts",
+    "data:all": "npm run data:fetch && npm run data:convert && npm run data:chunks && npm run data:validate"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "maplibre-gl": "^6.16.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "pbf": "^5.1.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
