@@ -45,3 +45,5 @@ Mapped boundary lines and street names are OpenStreetMap data under the attribut
 PeerJS (MIT) provides optional room signaling; WebRTC carries multiplayer snapshots. No audio/video capture is used. Rooms are browser-hosted sessions rather than an authoritative hosted game server.
 
 The flag texture is the exact image supplied by the user (`public/assets/rakhine-flag.png`), replacing the previous generated flags.
+
+The additional Sittwe NPC Asset Pack JPG supplied by the user guides the block-built citizen proportions, patterned longyi, clothing, occupational props and role animations. It is included unchanged as a reference, not as a ready-made mesh pack.

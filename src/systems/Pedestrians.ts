@@ -1,20 +1,11 @@
 import * as THREE from 'three';
 import { disposeCharacter } from '../player/CharacterModels';
 import { createNpc } from '../player/NpcModels';
+import {NPC_PROFILES as ROLES} from '../player/NpcProfiles';
 import { PlayerAnimations } from '../player/PlayerAnimations';
 import type { PlayerRig } from '../player/PlayerModel';
 import type { WorldManager } from '../world/WorldManager';
 
-const ROLES = [
-  {name:'Market vendor',activity:'arranging produce',color:0xbb7556},
-  {name:'Neighbour',activity:'taking a walk',color:0x7aab9d},
-  {name:'Student',activity:'walking to class',color:0xe4e0c9},
-  {name:'Gardener',activity:'tending the garden',color:0x6b8953},
-  {name:'Visitor',activity:'looking around',color:0x708fb4},
-  {name:'Elder',activity:'watching the neighbourhood',color:0x9885ab},
-  {name:'Worker',activity:'carrying a basket',color:0xc59b53},
-  {name:'Dancer',activity:'practising a dance',color:0xe5bb62},
-] as const;
 interface Person {rig:PlayerRig;anim:PlayerAnimations;role:number;anchor:THREE.Vector2;target:THREE.Vector2;wait:number;phase:number;age:number}
 
 /** Decorative single-player city routines. Spawn only on checked, loaded, dry walking space. */
@@ -35,12 +26,13 @@ export class Pedestrians {
     if(this.timer<=0 && this.people.length<limit){this.timer=.3;this.spawn(px,pz)}
     for(const p of this.people){
       p.age+=dt;p.wait-=dt;const root=p.rig.root,role=ROLES[p.role]!;
-      const moving=p.role===1||p.role===2||p.role===4||p.role===6;
+      const action=role.action;
+      const moving=action==='walk'||action==='carry';
       let speed=0;
       if(moving){
         const dx=p.target.x-root.position.x,dz=p.target.y-root.position.z,d=Math.hypot(dx,dz);
         if(p.wait<=0 && d>.3){
-          const step=Math.min(d,dt*(p.role===2?1.5:1));const x=root.position.x+dx/d*step,z=root.position.z+dz/d*step;
+          const step=Math.min(d,dt*(role.outfit==='student'||role.outfit==='schoolgirl'?1.3:role.outfit==='monk'?.65:1));const x=root.position.x+dx/d*step,z=root.position.z+dz/d*step;
           const occupiedByPerson=this.people.some(other=>other!==p&&Math.hypot(other.rig.root.position.x-x,other.rig.root.position.z-z)<.9);
           if(this.clear(x,z) && !occupiedByPerson && Math.hypot(x-px,z-pz)>1.2){root.position.x=x;root.position.z=z;root.rotation.y=Math.atan2(-dx,-dz);speed=step/Math.max(dt,.001)}
           else p.wait=1;
@@ -53,12 +45,17 @@ export class Pedestrians {
       }
       p.anim.update(dt,speed,true,0);
       if(!moving){
-        if(p.role===5){p.rig.body.rotation.x=.08;p.rig.head.rotation.y=Math.sin(p.age*.4)*.25}
-        else if(p.role===3){p.rig.body.rotation.x=-.35;p.rig.rightArm.rotation.x=-.8+Math.sin(p.age*2)*.3}
-        else if(p.role===0){p.rig.rightArm.rotation.x=-.9+Math.sin(p.age*1.4)*.25;p.rig.head.rotation.y=Math.sin(p.age*.6)*.3}
-        else if(p.role===7){p.rig.leftArm.rotation.z=-1.1+Math.sin(p.age*2)*.3;p.rig.rightArm.rotation.x=1.8+Math.sin(p.age*2)*.3;p.rig.body.rotation.y=Math.sin(p.age*.7)*.5}
+        if(action==='watch'){p.rig.body.rotation.x=.07;p.rig.head.rotation.y=Math.sin(p.age*.4)*.25}
+        else if(action==='garden'){p.rig.body.rotation.x=-.25;p.rig.rightArm.rotation.x=-.8+Math.sin(p.age*2)*.3}
+        else if(action==='work'){p.rig.rightArm.rotation.x=-.9+Math.sin(p.age*1.4)*.25;p.rig.leftArm.rotation.x=-.5;p.rig.head.rotation.y=Math.sin(p.age*.6)*.2}
+        else if(action==='dance'){p.rig.leftArm.rotation.z=-1.1+Math.sin(p.age*2)*.3;p.rig.rightArm.rotation.x=1.8+Math.sin(p.age*2)*.3;p.rig.body.rotation.y=Math.sin(p.age*.7)*.5}
+        else if(action==='phone'){p.rig.rightArm.rotation.x=2.35;p.rig.head.rotation.y=-.18}
+        else if(action==='read'){p.rig.leftArm.rotation.x=-1;p.rig.rightArm.rotation.x=-.8;p.rig.head.rotation.x=.25}
+        else if(action==='photo'){p.rig.rightArm.rotation.x=-2.1;p.rig.leftArm.rotation.x=-1.8;p.rig.head.rotation.y=Math.sin(p.age*.25)*.25}
+        else if(action==='wave'){p.rig.rightArm.rotation.z=-2.4+Math.sin(p.age*3)*.3;p.rig.body.position.y=.92+Math.max(0,Math.sin(p.age*2))*.08}
       }
-      if(p.role===6){p.rig.leftArm.rotation.x=-.8;p.rig.rightArm.rotation.x=-.8}
+      if(action==='carry'){p.rig.leftArm.rotation.x=-.8;p.rig.rightArm.rotation.x=-.8}
+      if(role.outfit==='monk')p.rig.leftArm.rotation.x=-.6;
       root.visible=Math.hypot(root.position.x-px,root.position.z-pz)<145;
       p.rig.nameTag.visible=Math.hypot(root.position.x-px,root.position.z-pz)<15;
       root.userData['activity']=role.activity;
@@ -68,7 +65,7 @@ export class Pedestrians {
     for(let attempt=0;attempt<8;attempt++){
       const a=Math.random()*Math.PI*2,r=16+Math.random()*85,x=px+Math.cos(a)*r,z=pz+Math.sin(a)*r;
       if(!this.clear(x,z)||this.people.some(p=>Math.hypot(x-p.rig.root.position.x,z-p.rig.root.position.z)<3))continue;
-      const role=this.sequence++%ROLES.length, spec=ROLES[role]!;
+      const role=(this.sequence++*7)%ROLES.length, spec=ROLES[role]!;
       const rig=createNpc(role,spec.name,this.sequence);
       rig.root.position.set(x,.08,z);rig.root.rotation.y=a;
       this.scene.add(rig.root);
