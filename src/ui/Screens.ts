@@ -81,14 +81,18 @@ export function controlsContent(): HTMLElement {
       ['E', 'Interact'],
       ['F', 'Enter vehicle (parked or passing traffic)'],
       ['V', 'Spawn a car nearby'],
-      ['J', 'Si Mee oil-lamp dance (Rakhine Girl)'],
+      ['J', 'Traditional dance (shield / oil lamps)'],
       ['C', 'Third / first person / cinematic'],
     ]),
     table('Driving', [
       ['W', 'Accelerate'],
       ['S', 'Brake / reverse'],
       ['A / D', 'Steer'],
-      ['Space', 'Handbrake'],
+      ['Space', 'Take off / Ascend'],
+      ['Ctrl', 'Descend'],
+      ['G', 'Toggle flight / Land'],
+      ['Shift', 'Flight boost'],
+      ['X', 'Handbrake'],
       ['L', 'Headlights'],
       ['R', 'Flip car upright'],
       ['C', 'Chase / far / hood / cinematic'],
@@ -133,7 +137,7 @@ export function aboutContent(manifest: WorldManifest | null): HTMLElement {
     ),
     h('h3', {}, 'Software'),
     h('p.small', {}, 'Three.js (MIT), Rapier physics (Apache-2.0), MapLibre GL JS (BSD-3-Clause), Vite (MIT). All 3D models, textures and sounds are generated procedurally in code.'),
-    h('p.small.muted', {}, 'Not affiliated with OpenTaxi or any map provider. The 2D map is rendered locally from OSM data; it does not use any third-party tile service.'),
+    h('p.small.muted', {}, 'Not affiliated with OpenTaxi or any map provider. The game map uses bundled OSM data. The optional street basemap loads OpenStreetMap tiles. Multiplayer uses PeerJS signaling and WebRTC.'),
   );
 }
 

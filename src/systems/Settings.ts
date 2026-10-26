@@ -24,6 +24,7 @@ export interface Settings {
   playerName: string;
   minimapRotate: boolean;
   character: 'boy' | 'girl';
+  touchControls:'auto'|'on'|'off';
 }
 
 export interface QualityPreset {
@@ -64,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   playerName: 'Player',
   minimapRotate: false,
   character: 'boy',
+  touchControls:'auto',
 };
 
 const KEY = 'sittwe3d.settings.v1';
@@ -81,6 +83,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   const name = typeof r['playerName'] === 'string' ? r['playerName'].trim().slice(0, 24) : '';
   return {
     quality,
+    touchControls:r['touchControls']==='on'?'on':r['touchControls']==='off'?'off':'auto',
     showFps: bool(r['showFps'], d.showFps),
     mouseSensitivity: num(r['mouseSensitivity'], 0.1, 3, d.mouseSensitivity),
     invertY: bool(r['invertY'], d.invertY),
@@ -112,6 +115,7 @@ export class SettingsStore {
       raw = null;
     }
     this.value = sanitizeSettings(raw);
+    if(!raw && typeof matchMedia!=='undefined' && matchMedia('(pointer: coarse)').matches)this.value={...this.value,quality:'low',showFps:false};
   }
 
   get(): Settings {

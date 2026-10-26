@@ -22,6 +22,9 @@ export interface DriveInput {
   /** -1 (right) .. 1 (left) */
   steer: number;
   handbrake: boolean;
+  lift?: boolean;
+  descend?: boolean;
+  boost?: boolean;
 }
 
 export const CAR = {
@@ -56,6 +59,8 @@ export class VehiclePhysics {
   gear: Gear = 'P';
   braking = false;
   throttle = 0;
+  flying = false;
+  landing = false;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -86,6 +91,8 @@ export class VehiclePhysics {
         .setCollisionGroups(Groups.vehicle),
       this.body,
     );
+    // Rotor pods are physical too, so the wide flying design cannot pass through walls or cars.
+    for(const x of [-2.05,2.05])for(const z of [-1.4,1.4])physics.world.createCollider(R.ColliderDesc.ball(.43).setTranslation(x,.1,z).setDensity(0).setCollisionGroups(Groups.vehicle),this.body);
     this.controller = physics.world.createVehicleController(this.body);
     this.controller.indexUpAxis = 1;
     this.controller.setIndexForwardAxis = 2;
@@ -111,8 +118,37 @@ export class VehiclePhysics {
     return v.x * fx + v.z * fz;
   }
 
+  toggleFlight(): void {
+    if(this.flying){this.landing=!this.landing;return;}
+    this.flying=true;this.landing=false;this.body.setGravityScale(0,true);
+    this.body.setLinvel({x:0,y:2,z:0},true);
+  }
+
+  private fly(input:DriveInput,dt:number,active:boolean):void {
+    const pos=this.body.translation(),v=this.body.linvel();
+    const yaw=this.yaw()+input.steer*1.15*dt;
+    this.body.setRotation({x:0,y:Math.sin(yaw/2),z:0,w:Math.cos(yaw/2)},true);
+    this.body.setAngvel({x:0,y:0,z:0},true);
+    const speed=input.boost?32:18,forward=active?(input.throttle-input.brake)*speed:0;
+    let vy=(this.landing||!active)?-1.8:input.lift?5:input.descend?-4:0;
+    if(pos.y>=120)vy=Math.min(vy,0);
+    const ray=new this.physics.R.Ray(pos,{x:0,y:-1,z:0});
+    const hit=this.physics.world.castRay(ray,3,true,undefined,Groups.wheelRay,this.collider,undefined,col=>col!==this.collider);
+    if(vy<0 && hit && hit.timeOfImpact<.9){
+      if(hit.collider.handle===this.physics.groundCollider.handle && Math.abs(v.y)<6){
+        this.flying=false;this.landing=false;this.body.setGravityScale(1,true);this.body.setLinvel({x:v.x*.5,y:0,z:v.z*.5},true);return;
+      }
+      vy=0;this.landing=false;
+    }
+    const k=1-Math.exp(-dt*3);
+    this.body.setLinvel({x:v.x+(-Math.sin(yaw)*forward-v.x)*k,y:v.y+(vy-v.y)*Math.min(1,dt*5),z:v.z+(-Math.cos(yaw)*forward-v.z)*k},true);
+    this.gear='D';this.throttle=input.throttle;this.braking=!!input.descend;
+  }
+
   /** Applies driver input; call once per fixed step before world.step(). */
   drive(input: DriveInput, dt: number, active: boolean): void {
+    if(active && input.lift && !this.flying)this.toggleFlight();
+    if(this.flying){this.fly(input,dt,active);return;}
     const c = this.controller;
     const v = this.forwardSpeed();
     let engine = 0;
@@ -169,7 +205,7 @@ export class VehiclePhysics {
       c.setWheelFrictionSlip(i, active && input.handbrake && i >= 2 ? 1.1 : i < 2 ? 3.2 : 3.0);
     }
     if (active && input.handbrake) this.braking = true;
-    c.updateVehicle(dt, undefined, Groups.wheelRay, (col) => col !== this.collider);
+    c.updateVehicle(dt, this.physics.R.QueryFilterFlags.EXCLUDE_DYNAMIC | this.physics.R.QueryFilterFlags.EXCLUDE_KINEMATIC, Groups.wheelRay);
   }
 
   get steering(): number {
@@ -185,6 +221,7 @@ export class VehiclePhysics {
 
   /** Puts the car upright at (x, z) facing `yaw`, at rest. */
   reset(x: number, z: number, yaw: number): void {
+    this.flying=false;this.landing=false;this.body.setGravityScale(1,true);
     const y = GROUND_Y + CAR.suspensionRest + CAR.wheelRadius + 0.3;
     this.body.setTranslation({ x, y, z }, true);
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);

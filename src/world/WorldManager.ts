@@ -6,12 +6,16 @@ import { pointInRings, ringBounds, type Pt, type Rect } from '../geo/geometry2d'
 import type { MapDataLoader } from '../geo/MapDataLoader';
 import { Groups } from '../physics/CollisionLayers';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
+import { homeRect, type HomeLocation } from '../systems/Housing';
+import { buildBoundaries, type BoundaryData } from './BoundaryGenerator';
+import { buildHome, disposeHome, type HomeObjects } from './HomeGenerator';
 import { buildBuildings } from './BuildingGenerator';
 import { ChunkManager } from './ChunkManager';
 import { buildLandmarks, disposeLandmarks, type LandmarkObjects } from './LandmarkGenerator';
 import { materials } from './materials';
 import { buildRoads, DRIVABLE } from './RoadGenerator';
 import { PolygonIndex, SegmentIndex } from './SpatialIndex';
+import { buildStreetSigns, disposeStreetSigns } from './StreetSigns';
 import { buildStreetLights } from './StreetFurniture';
 import { buildLanduse, createGroundPlane } from './TerrainGenerator';
 import { buildVegetation, placeTrees } from './VegetationGenerator';
@@ -48,6 +52,7 @@ interface BuiltChunk {
   ramps: number[][];
   landmarks: LandmarkObjects | null;
   vegetation: THREE.InstancedMesh[];
+  signs:THREE.Group;
   physics: { building: RAPIER.Collider | null; bodies: RAPIER.RigidBody[] } | null;
   stats: { triangles: number };
 }
@@ -64,6 +69,13 @@ export class WorldManager {
   private readonly seaPolys: Array<{ rings: Pt[][]; bounds: Rect }>;
   private readonly seaMesh: THREE.Mesh | null;
   private readonly ground: THREE.Mesh;
+  private home: HomeObjects | null = null;
+  private homeLocation: HomeLocation | null = null;
+  private homeBodies: RAPIER.RigidBody[] = [];
+  private doorBody: RAPIER.RigidBody | null = null;
+  private doorOpen = true;
+  private preview: HomeObjects | null = null;
+  private boundaryBody:RAPIER.RigidBody|null=null;
   private time = 0;
   private playerX = 0;
   private playerZ = 0;
@@ -120,6 +132,10 @@ export class WorldManager {
     waterMaterial().uniforms['uTime']!.value = this.time;
     this.chunks.update(playerX, playerZ);
     this.runJobs();
+    if (this.home && this.homeLocation) {
+      const inside = Math.abs(playerX-this.homeLocation.x)<4.3 && playerZ>this.homeLocation.z-4.3 && playerZ<this.homeLocation.z+4.3;
+      this.home.roof.visible = !inside;
+    }
     this.updateActivation();
   }
 
@@ -248,11 +264,14 @@ export class WorldManager {
       ramps: [],
       landmarks: null,
       vegetation: [],
+      signs:buildStreetSigns(data.roads,(x,z)=>!buildingIndex.hit(x,z,1)&&!this.landmarkReserved(x,z)&&!this.inHomePlot(x,z)&&!this.isBlocked(x,z)),
       physics: null,
       stats: { triangles: 0 },
     };
+    detail.add(chunk.signs);
     this.buildVegetation(chunk);
-    const lights = buildStreetLights(roads.lampCandidates, data.lamps, buildingIndex);
+    const clearLamps=(p:number[])=>{const out:number[]=[];for(let i=0;i<p.length;i+=2)if(!this.landmarkReserved(p[i]!,p[i+1]!)&&!this.inHomePlot(p[i]!,p[i+1]!))out.push(p[i]!,p[i+1]!);return out;};
+    const lights = buildStreetLights(clearLamps(roads.lampCandidates), clearLamps(data.lamps), buildingIndex);
     if (lights.pole) detail.add(lights.pole);
     if (lights.head) detail.add(lights.head);
     chunk.lamps = lights.positions;
@@ -269,12 +288,28 @@ export class WorldManager {
     return chunk;
   }
 
+  private landmarkReserved(x:number,z:number):boolean {
+    for(const lm of this.manifest.landmarks) {
+      if(lm.pg) {
+        const bounds=ringBounds(flatToPts(lm.pg));
+        if(x>bounds.minX-6 && x<bounds.maxX+6 && z>bounds.minY-6 && z<bounds.maxY+6)return true;
+      }
+      if(lm.pr) {
+        const st=lm.pr.stations;
+        for(let i=0;i<st.length;i+=4)if(Math.hypot(x-st[i]!,z-st[i+1]!)<Math.max(st[i+2]!,st[i+3]!)+4)return true;
+      }
+      if(['clock','monument','memorial','statue','artwork'].includes(lm.k) && Math.hypot(x-lm.x,z-lm.z)<12)return true;
+      if(lm.sx!==undefined && lm.sz!==undefined && Math.hypot(x-lm.sx,z-lm.sz)<(lm.ss??.8)*4+3)return true;
+    }
+    return false;
+  }
+
   private buildVegetation(c: BuiltChunk): void {
     for (const v of c.vegetation) {
       c.detail.remove(v);
       v.dispose();
     }
-    const trees = placeTrees(c.key, c.data.trees, c.data.landuse, { buildings: c.buildingIndex, roads: c.roadIndex, isWater: (x, z) => this.isWater(x, z, c) }, this.opts.vegetationDensity);
+    const trees = placeTrees(c.key, c.data.trees, c.data.landuse, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x,z)=>this.inHomePlot(x,z)||this.landmarkReserved(x,z), isWater: (x, z) => this.inHomePlot(x,z) || this.landmarkReserved(x,z) || this.isWater(x, z, c) }, this.opts.vegetationDensity);
     const veg = buildVegetation(trees);
     c.vegetation = veg.meshes;
     for (const mesh of veg.meshes) c.detail.add(mesh);
@@ -303,6 +338,7 @@ export class WorldManager {
     this.built.delete(key);
     if (c.physics) this.deactivatePhysics(c);
     if (c.landmarks) disposeLandmarks(c.landmarks);
+    c.signs.removeFromParent();disposeStreetSigns(c.signs);
     this.root.remove(c.group);
     disposeGroup(c.group);
   }
@@ -390,6 +426,8 @@ export class WorldManager {
   }
 
   /** True if (x, z) is on a mapped road/path/pier (incl. bridges over water). */
+  hasChunkAt(x: number,z: number): boolean { return this.built.has(chunkKey(Math.floor(x/this.manifest.chunkSize),Math.floor(z/this.manifest.chunkSize))); }
+
   isOnRoad(x: number, z: number, margin = 0.5): boolean {
     const c = this.chunkAt(x, z);
     return !!c && c.roadIndex.hit(x, z, margin);
@@ -524,6 +562,51 @@ export class WorldManager {
     }
   }
 
+  private inHomePlot(x: number, z: number): boolean {
+    if (!this.homeLocation) return false;
+    const r=homeRect(this.homeLocation);
+    return x>=r.minX && x<=r.maxX && z>=r.minY && z<=r.maxY;
+  }
+
+  setBoundaries(data:BoundaryData):void {
+    const b=buildBoundaries(data);this.root.add(b.group);
+    this.boundaryBody=this.physics.createStaticBoxes(b.boxes,Groups.building);
+  }
+
+  setHome(p: HomeLocation): void {
+    for(const b of this.homeBodies) this.physics.removeBody(b);
+    this.homeBodies=[];
+    if(this.doorBody) this.physics.removeBody(this.doorBody);
+    if(this.home) disposeHome(this.home);
+    this.homeLocation={...p};this.home=buildHome(p);this.root.add(this.home.group);
+    const boxes=this.physics.createStaticBoxes(this.home.boxes,Groups.building);
+    const ramps=this.physics.createStaticHulls(this.home.ramps,Groups.building);
+    if(boxes)this.homeBodies.push(boxes);if(ramps)this.homeBodies.push(ramps);
+    this.doorBody=this.physics.createStaticBoxes([p.x,3.14,p.z+2.12,.75,1.22,.05,0],Groups.building);
+    this.doorOpen=true;this.doorBody?.setEnabled(false);
+    for(const c of this.built.values()) {
+      const active=!!c.physics;if(active)this.deactivatePhysics(c);
+      this.buildVegetation(c);if(active)this.activatePhysics(c);
+    }
+  }
+
+  previewHome(p: HomeLocation | null): void {
+    if(this.preview) disposeHome(this.preview);
+    this.preview=p?buildHome(p,true):null;
+    if(this.preview)this.root.add(this.preview.group);
+  }
+
+  nearHomeDoor(x: number,z: number): boolean {
+    return !!this.homeLocation && Math.hypot(x-this.homeLocation.x,z-this.homeLocation.z-2.1)<2.2;
+  }
+
+  toggleHomeDoor(): void {
+    if(!this.home)return;
+    this.doorOpen=!this.doorOpen;
+    this.home.door.rotation.y=this.doorOpen?-Math.PI*.48:0;
+    this.doorBody?.setEnabled(!this.doorOpen);
+  }
+
   stats(): { loaded: number; built: number; pending: number; triangles: number } {
     let triangles = 0;
     for (const c of this.built.values()) triangles += c.stats.triangles;
@@ -531,6 +614,11 @@ export class WorldManager {
   }
 
   dispose(): void {
+    this.previewHome(null);
+    if(this.boundaryBody)this.physics.removeBody(this.boundaryBody);
+    if(this.home)disposeHome(this.home);
+    for(const b of this.homeBodies)this.physics.removeBody(b);
+    if(this.doorBody)this.physics.removeBody(this.doorBody);
     this.chunks.dispose();
     this.scene.remove(this.root);
     this.ground.geometry.dispose();

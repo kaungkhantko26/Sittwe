@@ -77,6 +77,8 @@ export function settingsContent(store: SettingsStore, hooks: SettingsHooks): HTM
   lang.value = s.language;
   lang.addEventListener('change', () => store.update({ language: lang.value as Settings['language'] }));
 
+  const touch=h('select') as HTMLSelectElement;touch.append(h('option',{value:'auto'},'Automatic'),h('option',{value:'on'},'On'),h('option',{value:'off'},'Off'));touch.value=s.touchControls;touch.addEventListener('change',()=>store.update({touchControls:touch.value as Settings['touchControls']}));
+
   const name = h('input', { type: 'text', maxlength: 24, value: s.playerName }) as HTMLInputElement;
   name.addEventListener('change', () => store.update({ playerName: name.value }));
 
@@ -100,6 +102,6 @@ export function settingsContent(store: SettingsStore, hooks: SettingsHooks): HTM
     section('camera', slider('mouseSensitivity', 'sensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2)), slider('cameraDistance', 'cameraDistance', 2.5, 14, 0.5, (v) => `${v.toFixed(1)} m`), slider('fov', 'fov', 50, 85, 1, (v) => `${v}°`), toggle('invertY', 'invertY')),
     section('timeWeather', row(t('timeOfDay'), todInput, todVal), presets, slider('dayLengthMinutes', 'dayLength', 0, 120, 1, (v) => (v === 0 ? '∞ (paused)' : `${v} min`)), toggle('rain', 'rain')),
     section('audio', slider('masterVolume', 'masterVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), slider('sfxVolume', 'sfxVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), slider('ambienceVolume', 'ambienceVolume', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`), toggle('muted', 'mute')),
-    section('general', row(t('character'), charSeg), row(t('language'), lang), row(t('playerName'), name), toggle('minimapRotate', 'minimapRotate'), h('div.row', {}, reset)),
+    section('general', row('Touch controls',touch), row(t('character'), charSeg), row(t('language'), lang), row(t('playerName'), name), toggle('minimapRotate', 'minimapRotate'), h('div.row', {}, reset)),
   );
 }

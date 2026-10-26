@@ -9,6 +9,12 @@ export class InputManager {
   private mouseDY = 0;
   private wheel = 0;
   enabled = true;
+  readonly touchMove={x:0,y:0};
+  private readonly touchKeys=new Set<string>();
+  setTouchKey(code:string,down:boolean):void {if(down){if(!this.touchKeys.has(code))this.pressed.add(code);this.touchKeys.add(code)}else this.touchKeys.delete(code)}
+  addTouchLook(dx:number,dy:number):void {this.mouseDX+=dx;this.mouseDY+=dy}
+  clearTouch():void {this.touchKeys.clear();this.touchMove.x=0;this.touchMove.y=0}
+
 
   constructor(private readonly target: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown);
@@ -31,6 +37,7 @@ export class InputManager {
 
   private readonly onBlur = () => {
     this.down.clear();
+    this.clearTouch();
   };
 
   private readonly onMouseMove = (e: MouseEvent) => {
@@ -48,7 +55,7 @@ export class InputManager {
   };
 
   isDown(code: string): boolean {
-    return this.enabled && this.down.has(code);
+    return this.enabled && (this.down.has(code)||this.touchKeys.has(code));
   }
 
   /** True only on the first frame a key goes down. */
@@ -80,6 +87,7 @@ export class InputManager {
   }
 
   requestPointerLock(): void {
+    if(document.documentElement.classList.contains('touch-enabled'))return;
     if (this.isPointerLocked()) return;
     const p = this.target.requestPointerLock() as unknown as Promise<void> | undefined;
     // Newer browsers return a promise that rejects if the request is too soon after an exit.

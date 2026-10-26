@@ -99,6 +99,22 @@ function mapStyle(): maplibregl.StyleSpecification {
   };
 }
 
+/** Canvas label images avoid a remote glyph service, including for Myanmar-script street names. */
+async function addRoadLabels(map:maplibregl.Map,visible=true):Promise<void> {
+ try {
+  const src=map.getSource('roads') as maplibregl.GeoJSONSource;
+  const data=await src.getData() as GeoJSON.FeatureCollection;
+  const names=[...new Set(data.features.map(f=>f.properties?.['name']).filter((n):n is string=>typeof n==='string'&&n.length>0))];
+  if(!names.length||map.getLayer('road-names'))return;
+  const matches:unknown[]=['match',['get','name']];
+  names.forEach((name,i)=>{
+   const c=document.createElement('canvas');c.width=512;c.height=64;const g=c.getContext('2d')!;g.font='600 26px "Noto Sans Myanmar",sans-serif';g.textAlign='center';g.textBaseline='middle';g.lineWidth=5;g.strokeStyle='#17252b';g.fillStyle='#fff4d5';g.strokeText(name,256,32,500);g.fillText(name,256,32,500);
+   const id=`road-name-${i}`;map.addImage(id,g.getImageData(0,0,512,64),{pixelRatio:2});matches.push(name,id);
+  });matches.push('road-name-0');
+  map.addLayer({id:'road-names',type:'symbol',source:'roads',minzoom:14.5,filter:['all',['has','name'],['!=',['get','name'],null]],layout:{'visibility':visible?'visible':'none','symbol-placement':'line','symbol-spacing':320,'icon-image':matches as maplibregl.ExpressionSpecification,'icon-size':.85,'icon-keep-upright':true,'icon-allow-overlap':false}},'route-casing');
+ } catch(e){console.warn('[Map] road labels unavailable',e)}
+}
+
 /** Pushes a route (local meters) into a map's `route` source, waiting for the style if needed. */
 function setRouteOn(map: maplibregl.Map, points: Array<[number, number]> | null): void {
   const apply = () => {
@@ -205,6 +221,10 @@ export interface FullMapCallbacks {
   onSetDestination(x: number, z: number): void;
   onClearDestination(): void;
   onTeleport(x: number, z: number): void;
+  onPreviewHome(x: number,z: number): void;
+  onConfirmHome(): void;
+  onCancelHome(): void;
+  onGoHome(): void;
   onClose(): void;
   canTeleport(x: number, z: number): boolean;
 }
@@ -226,6 +246,7 @@ export class FullMap {
   private search: SearchEntry[] = [];
   private readonly searchInput: HTMLInputElement;
   private readonly results: HTMLElement;
+  private streetMap = true;
 
   constructor(
     parent: HTMLElement,
@@ -241,9 +262,19 @@ export class FullMap {
         <div class="fullmap-head"><h2 data-i18n="map"></h2><button class="btn icon close" aria-label="Close">✕</button></div>
         <input class="map-search" type="search" placeholder="Search places, roads, landmarks…" autocomplete="off" />
         <ul class="search-results"></ul>
+        <button class="btn basemap-toggle">Show game map</button>
+        <p class="tiny muted">Street map: OpenStreetMap (internet required). Game map: bundled map geometry.</p>
         <p class="muted small fullmap-hint"></p>
         <div class="fullmap-info"></div>
+        <a class="btn google-reference" target="_blank" rel="noopener">View selected place in Google Maps ↗</a>
         <div class="row gap"><button class="btn primary teleport"></button><button class="btn clear"></button></div>
+        <section class="home-map-panel">
+          <h3>Your Rakhine home</h3>
+          <p class="small muted">Search a ward or click the map. Choose an empty residential plot near a road.</p>
+          <div class="row gap"><button class="btn home-check">Check home plot</button><button class="btn home-go">Go home</button></div>
+          <p class="home-status small" role="status">Your home is stored locally in this browser.</p>
+          <div class="row gap"><button class="btn primary home-confirm" disabled>Make this my home</button><button class="btn home-cancel">Cancel</button></div>
+        </section>
         <h3 class="landmarks-title"></h3>
         <ul class="landmark-list"></ul>
         <p class="muted tiny attribution">© OpenStreetMap contributors (ODbL)</p>
@@ -261,10 +292,15 @@ export class FullMap {
       if (e.key === 'Enter') (this.results.querySelector('li') as HTMLElement | null)?.click();
       if (e.key === 'Escape') this.cb.onClose();
     });
+    this.el.querySelector('.basemap-toggle')!.addEventListener('click',()=>{this.streetMap=!this.streetMap;this.applyBasemap()});
     this.el.querySelector('.close')!.addEventListener('click', () => this.cb.onClose());
     this.teleportBtn.addEventListener('click', () => {
       if (this.dest && this.cb.canTeleport(this.dest.x, this.dest.z)) this.cb.onTeleport(this.dest.x, this.dest.z);
     });
+    this.el.querySelector('.home-check')!.addEventListener('click',()=>{if(this.dest)this.cb.onPreviewHome(this.dest.x,this.dest.z);else this.setHomeStatus('Choose a place or map pin first.',false)});
+    this.el.querySelector('.home-confirm')!.addEventListener('click',()=>this.cb.onConfirmHome());
+    this.el.querySelector('.home-cancel')!.addEventListener('click',()=>this.cb.onCancelHome());
+    this.el.querySelector('.home-go')!.addEventListener('click',()=>this.cb.onGoHome());
     this.clearBtn.addEventListener('click', () => {
       this.setDestination(null);
       this.cb.onClearDestination();
@@ -352,6 +388,8 @@ export class FullMap {
       attributionControl: false,
       dragRotate: false,
     });
+    this.map.on('load',()=>{this.applyBasemap();void addRoadLabels(this.map!,!this.streetMap);});
+    this.map.on('error',e=>{if(((e as {sourceId?:string}).sourceId==='osm-streets'||/tile\.openstreetmap\.org/.test(e.error?.message??'')) && this.streetMap){this.streetMap=false;this.applyBasemap();this.el.querySelector('.fullmap-hint')!.textContent='Online street tiles are unavailable. Showing the bundled game map.';}});
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     this.map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }), 'bottom-left');
     this.map.on('click', (e) => {
@@ -424,8 +462,36 @@ export class FullMap {
     this.updateInfo();
   }
 
+  private applyBasemap(): void {
+    if(!this.map?.isStyleLoaded())return;
+    if(!this.map.getSource('osm-streets')) {
+      this.map.addSource('osm-streets',{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'});
+      this.map.addLayer({id:'osm-streets',type:'raster',source:'osm-streets'},'landuse');
+    }
+    this.map.setLayoutProperty('osm-streets','visibility',this.streetMap?'visible':'none');
+    for(const id of ['landuse','water','buildings','paths','roads',...(this.map.getLayer('road-names')?['road-names']:[])])this.map.setLayoutProperty(id,'visibility',this.streetMap?'none':'visible');
+    this.el.querySelector('.basemap-toggle')!.textContent=this.streetMap?'Show game map':'Show real street map';
+  }
+
+  setHomeStatus(message: string, valid: boolean, plot?: {x: number;z: number}): void {
+    this.el.querySelector('.home-status')!.textContent=message;
+    (this.el.querySelector('.home-confirm') as HTMLButtonElement).disabled=!valid;
+    if(!this.map)return;
+    const source=this.map.getSource('home-preview') as maplibregl.GeoJSONSource | undefined;
+    const data: GeoJSON.FeatureCollection={type:'FeatureCollection',features:plot?[{type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[[lonLat(plot.x-7,plot.z-10),lonLat(plot.x+7,plot.z-10),lonLat(plot.x+7,plot.z+10),lonLat(plot.x-7,plot.z+10),lonLat(plot.x-7,plot.z-10)]]}}]:[]};
+    if(source)source.setData(data);
+    else if(this.map.isStyleLoaded()) {
+      this.map.addSource('home-preview',{type:'geojson',data});
+      this.map.addLayer({id:'home-preview-fill',type:'fill',source:'home-preview',paint:{'fill-color':'#e9b64f','fill-opacity':.45}});
+      this.map.addLayer({id:'home-preview-line',type:'line',source:'home-preview',paint:{'line-color':'#ffe1a0','line-width':3}});
+    }
+  }
+
   private updateInfo(): void {
     const d = this.dest;
+    const google=this.el.querySelector('.google-reference') as HTMLAnchorElement;
+    const point=d??this.player,[gLng,gLat]=lonLat(point.x,point.z);
+    google.href=`https://www.google.com/maps/search/?api=1&query=${gLat.toFixed(6)},${gLng.toFixed(6)}`;
     this.teleportBtn.disabled = !d || !this.cb.canTeleport(d.x, d.z);
     this.clearBtn.disabled = !d;
     if (!d) {

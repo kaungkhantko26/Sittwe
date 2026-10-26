@@ -6,7 +6,7 @@ import { showFatalError } from './ui/errors';
 function webglAvailable(): boolean {
   try {
     const c = document.createElement('canvas');
-    return !!(c.getContext('webgl2') ?? c.getContext('webgl'));
+    return !!(c.getContext('webgl2'));
   } catch {
     return false;
   }
@@ -17,7 +17,7 @@ async function boot(): Promise<void> {
   const ui = document.getElementById('ui');
   if (!viewport || !ui) throw new Error('Missing #viewport or #ui element');
   if (!webglAvailable()) {
-    showFatalError(ui, 'WebGL is not available', 'Sittwe 3D needs a browser with WebGL enabled (Chrome, Edge, Safari or Firefox on a desktop computer).');
+    showFatalError(ui, 'WebGL is not available', 'Sittwe 3D needs a browser with WebGL enabled (a recent Safari, Chrome, Edge or Firefox on a phone, tablet or computer).');
     return;
   }
   const game = new Game(viewport, ui);

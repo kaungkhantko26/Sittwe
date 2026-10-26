@@ -217,3 +217,82 @@ select option { color: #000; }
 .search-results li:hover, .search-results li.active { background: rgba(79, 179, 255, 0.15); }
 .search-kind { font-size: 10px; text-transform: uppercase; color: var(--muted); min-width: 52px; }
 .mode-toggle { display: flex; gap: 6px; }
+
+/* Home controls stay usable in the map sidebar on smaller screens. */
+.home-map-panel { border-top: 1px solid #ffffff20; border-bottom: 1px solid #ffffff20; padding: 14px 0; margin: 16px 0; }
+.home-map-panel .row { flex-wrap: wrap; }
+.home-status { color: #f5cd83; line-height: 1.5; min-height: 3em; }
+@media (max-width: 700px) {
+  .hud-compass { max-width: 42vw; }
+  .hud-topleft { max-width: 45vw; }
+  .hud-stats { display: none; }
+  .fullmap-side { max-height: 60vh; overflow-y: auto; }
+}
+
+.touch-controls { display: none; position: absolute; inset: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.touch-controls button { min-width: 48px; min-height: 46px; border-radius: 14px; color: #fff; border: 1px solid #ffffff60; background: #17252bba; font: 600 12px var(--font); touch-action: none; -webkit-tap-highlight-color: transparent; }
+.touch-controls button.pressed { background: #b38131d9; }
+.touch-joystick { position: absolute; left: max(20px,env(safe-area-inset-left)); bottom: max(24px,env(safe-area-inset-bottom)); width: 116px; height: 116px; border: 1px solid #ffffff55; border-radius: 50%; background: #10212966; touch-action: none; pointer-events: auto; }
+.touch-stick { width: 44px; height: 44px; position: absolute; top: 35px; left: 35px; background: #f2c76a99; border: 2px solid #ffe2aa; border-radius: 50%; pointer-events: none; }
+.touch-look { position: absolute; right: 0; top: 100px; bottom: 170px; width: 55%; touch-action: none; pointer-events: auto; }
+.touch-actions { position: absolute; right: max(14px,env(safe-area-inset-right)); bottom: max(18px,env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3,48px); gap: 6px; pointer-events: auto; }
+.touch-top { position: absolute; right: max(14px,env(safe-area-inset-right)); top: max(180px,env(safe-area-inset-top)); display: flex; gap: 6px; pointer-events: auto; }
+@media (pointer: coarse) {
+  html,body,#app,#viewport { overscroll-behavior: none; }
+  #viewport { touch-action: none; }
+  .touch-controls { display: block; }
+  .hud-hints,.hud-stats { display: none; }
+  .hud-topleft { top: max(12px,env(safe-area-inset-top)); left: max(12px,env(safe-area-inset-left)); }
+  .hud-topright { top: max(12px,env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); }
+  .hud-prompt { bottom: 180px; max-width: 70vw; text-align: center; font-size: 12px; }
+  .hud-vehicle { left: 50%; right: auto; bottom: max(18px,env(safe-area-inset-bottom)); transform: translateX(-50%); padding: 4px 8px; }
+  .hud-vehicle .vh-col { display: none; }
+  .hud-vehicle .speedo { width: 76px; height: 68px; }
+  .hud-vehicle .speed-dial { width: 76px; height: 76px; }
+  .speed-value { font-size: 25px; }
+  .menu-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
+}
+@media (max-width: 600px) {
+  .hud-topleft { min-width: 0; width: 175px; max-width: 48vw; padding: 8px 10px; }
+  .hud-location { font-size: 10px; }
+  .hud-topcenter { top: 105px; }
+  .hud-compass { width: 190px; max-width: 60vw; }
+  .minimap { width: 96px; height: 96px; }
+  .minimap-buttons { gap: 3px; }
+  .minimap-buttons button { min-width: 26px; padding: 3px 6px; }
+  .hud-toast { top: 160px; width: 90vw; text-align: center; font-size: 12px; }
+  .touch-top { top: 152px; }
+  .fullmap-side { left: 0; right: 0; bottom: 0; top: auto; width: 100%; height: 48dvh; max-height: 48dvh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 12px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); }
+  .fullmap-canvas { bottom: 48dvh; }
+  .fullmap-side>* { flex-shrink: 0; }
+  .fullmap-side .landmark-list { overflow: visible; }
+  .menu-card { margin: 12px auto; width: 92vw; padding: 20px; }
+  .main-menu { place-items: center; }
+  .modal { width: 96vw; max-height: 92dvh; }
+  .controls-grid { grid-template-columns: 1fr; }
+}
+@media (pointer: coarse) and (max-height: 500px) {
+  .minimap { width: 80px; height: 80px; }
+  .touch-top { top: 115px; }
+  .hud-topcenter { top: 10px; }
+  .hud-topleft { max-width: 28vw; }
+  .touch-actions { grid-template-columns: repeat(5,44px); gap: 4px; }
+  .touch-controls button { min-width: 44px; min-height: 40px; }
+  .touch-joystick { width: 98px; height: 98px; }
+  .touch-stick { top: 26px; left: 26px; }
+  .touch-look { top: 65px; bottom: 110px; }
+  .hud-prompt { bottom: 105px; }
+  .fullmap-side { width: 280px; top: 8px; bottom: 8px; left: 8px; right: auto; height: auto; max-height: none; }
+  .fullmap-canvas { inset: 0 0 0 290px; }
+}
+.room-badge { position: absolute; left: 16px; top: 125px; max-width: 290px; font-size: 12px; padding: 7px 12px; }
+.rooms { display: grid; gap: 14px; }
+.rooms .row { flex-wrap: wrap; }
+.room-status { color: var(--accent); font-weight: 600; }
+.room-code { display: block; width: 100%; margin-top: 8px; padding: 12px; font-size: 20px; letter-spacing: .18em; text-transform: uppercase; background: #17252b; color: #fff; border: 1px solid var(--border); border-radius: 10px; }
+@media (max-width:600px) { .room-badge { top: 150px; left: 12px; max-width: 170px; font-size: 10px; } }
+@media (pointer:coarse) and (max-height:500px) { .room-badge { top: 110px; } }
+
+.touch-enabled .touch-controls { display: block; }
+.touch-disabled .touch-controls { display: none; }
+.touch-enabled .hud-hints { display: none; }

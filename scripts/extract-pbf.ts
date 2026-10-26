@@ -180,7 +180,7 @@ function visit(path: string, v: Visitor): void {
 
 const AREA_KEYS = ['building', 'landuse', 'leisure', 'waterway', 'amenity'];
 function wantWay(t: Tags): boolean {
-  if (t['highway'] || t['man_made'] === 'pier') return true;
+  if (t['barrier'] || t['highway'] || t['man_made'] === 'pier') return true;
   if (t['natural'] && t['natural'] !== 'coastline') return true;
   return AREA_KEYS.some((k) => t[k] !== undefined);
 }

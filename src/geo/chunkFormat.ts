@@ -77,6 +77,8 @@ export interface ChunkLandmark {
   ss?: number;
   /** Seaside promenade fitted to the real headland shape (viewpoints such as Sittwe Point). */
   pr?: { axis: [number, number]; stations: number[] };
+  /** Original mapped point when a small roundabout centre refines the model placement. */
+  sourcePosition?: {x:number;z:number};
   /** Clock tower style: colonial (Old Clock Tower, 1887) or burmese (New Clock Tower). */
   cs?: 'colonial' | 'burmese';
   /** Pagoda complex footprint (flat x,z ring of the mapped platform/building). */

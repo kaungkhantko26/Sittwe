@@ -1,10 +1,9 @@
 import * as THREE from 'three';
 import type { ChunkLandmark } from '../geo/chunkFormat';
-import type { Pt } from '../geo/geometry2d';
+import {distToSegmentSq,type Pt} from '../geo/geometry2d';
 import { orientedRect } from './BuildingGenerator';
 import { addBeam, addFlatPolygon, GeometryBuilder } from './GeometryBuilder';
 import { materials } from './materials';
-import { palmGeometry } from './VegetationGenerator';
 
 /**
  * Pagoda complex on a real mapped footprint (e.g. Lawkanandar Pagoda,
@@ -47,6 +46,13 @@ function checkerTexture(): THREE.CanvasTexture {
   return t;
 }
 
+function marbleTexture():THREE.CanvasTexture {
+ const c=document.createElement('canvas');c.width=256;c.height=256;const g=c.getContext('2d')!;
+ g.fillStyle='#ddd7c9';g.fillRect(0,0,256,256);
+ for(let y=0;y<8;y++)for(let x=0;x<8;x++){g.fillStyle=(x+y)%2?'#e9e4d8':'#d5d0c5';g.fillRect(x*32+1,y*32+1,30,30);}
+ const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(1/8,1/8);return texture;
+}
+
 /** Bell-shaped stupa profile (height 1), Burmese style. */
 function stupaGeometry(segments = 20): THREE.BufferGeometry {
   const pts = [
@@ -68,6 +74,7 @@ export interface PagodaObjects {
 }
 
 export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
+  const isLawkanandar=lm.id==='node/1230796347'||/lawkanand|လောကနန္ဒာ/i.test(lm.ne??lm.n);
   const flat = lm.pg;
   if (!flat || flat.length < 6) return null;
   const ring: Pt[] = [];
@@ -95,41 +102,57 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
   const gold = materials().gold;
   const solid = new GeometryBuilder();
 
-  // 1) Blue/white checkered courtyard on the real footprint (top of the platform).
+  // 1) Tiled courtyard on the real footprint (top of the platform).
   const court = new GeometryBuilder();
   addFlatPolygon(court, [flat], PLATFORM_Y + 0.02);
-  const courtMat = new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.35, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+  const courtMat = new THREE.MeshStandardMaterial({ map: isLawkanandar?marbleTexture():checkerTexture(), roughness: 0.35, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   courtMat.userData['own'] = true;
   const courtMesh = new THREE.Mesh(court.build(), courtMat);
   courtMesh.receiveShadow = true;
   group.add(courtMesh);
 
-  // 2) Gold trim band and white railing along the platform edge.
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]!;
-    const b = ring[(i + 1) % ring.length]!;
-    solid.setColor(0xd9a93c);
-    addBeam(solid, a[0], PLATFORM_Y - 0.08, a[1], b[0], PLATFORM_Y - 0.08, b[1], 0.12, 0.14);
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const n = Math.max(1, Math.round(len / 3));
-    solid.setColor(0xf7f6f1);
-    for (let k = 0; k < n; k++) {
-      const x = a[0] + ((b[0] - a[0]) * k) / n;
-      const z = a[1] + ((b[1] - a[1]) * k) / n;
-      addBeam(solid, x, PLATFORM_Y, z, x, PLATFORM_Y + 1.0, z, 0.22, 0.22);
-    }
-    addBeam(solid, a[0], PLATFORM_Y + 0.95, a[1], b[0], PLATFORM_Y + 0.95, b[1], 0.14, 0.12);
-    addBeam(solid, a[0], PLATFORM_Y + 0.5, a[1], b[0], PLATFORM_Y + 0.5, b[1], 0.08, 0.08);
-  }
-
-  // 3) Stairs + golden gates on all four sides (centre of each rect edge).
+  const stairW = Math.min(6, minSide * 0.12 + 2);
   const sides: Array<{ u: number; v: number; nu: number; nv: number; yaw: number }> = [
     { u: 0, v: -lenV / 2, nu: 0, nv: -1, yaw: yawU },
     { u: 0, v: lenV / 2, nu: 0, nv: 1, yaw: yawU },
     { u: -lenU / 2, v: 0, nu: -1, nv: 0, yaw: yawU + Math.PI / 2 },
     { u: lenU / 2, v: 0, nu: 1, nv: 0, yaw: yawU + Math.PI / 2 },
   ];
-  const stairW = Math.min(6, minSide * 0.12 + 2);
+  // Intersect each approach with the actual footprint, including concave courtyards.
+  for (const side of sides) {
+    const dx=ux*side.nu+vx*side.nv,dz=uz*side.nu+vz*side.nv;
+    let distance=Infinity;
+    for(let i=0;i<ring.length;i++){
+      const a=ring[i]!,b=ring[(i+1)%ring.length]!,ex=b[0]-a[0],ez=b[1]-a[1];
+      const cross=dx*ez-dz*ex;if(Math.abs(cross)<1e-8)continue;
+      const ax=a[0]-cx,az=a[1]-cz,t=(ax*ez-az*ex)/cross,u=(ax*dz-az*dx)/cross;
+      if(t>=0&&u>=0&&u<=1)distance=Math.min(distance,t);
+    }
+    if(Number.isFinite(distance)){side.u=side.nu*distance;side.v=side.nv*distance;}
+  }
+  const entrances=sides.map(side=>at(side.u,side.v));
+  // Fence panels leave an entrance in the middle of each edge, aligned with the stairs.
+  for (let i=0;i<ring.length;i++) {
+    const a=ring[i]!,b=ring[(i+1)%ring.length]!;
+    const len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    const gaps=entrances.filter(([x,z])=>distToSegmentSq(x,z,a[0],a[1],b[0],b[1])<.1)
+      .map(([x,z])=>{const t=((x-a[0])*(b[0]-a[0])+(z-a[1])*(b[1]-a[1]))/(len*len),half=(stairW/2+.5)/len;return [Math.max(0,t-half),Math.min(1,t+half)] as const;}).sort((a,b)=>a[0]-b[0]);
+    const panels:number[][]=[];let cursor=0;
+    for(const [lo,hi] of gaps){if(lo>cursor)panels.push([cursor,lo]);cursor=Math.max(cursor,hi);}
+    if(cursor<1)panels.push([cursor,1]);
+    for(const [lo,hi] of panels) {
+      const ax=a[0]+(b[0]-a[0])*lo!,az=a[1]+(b[1]-a[1])*lo!;
+      const bx=a[0]+(b[0]-a[0])*hi!,bz=a[1]+(b[1]-a[1])*hi!;
+      solid.setColor(0xd9a93c);addBeam(solid,ax,PLATFORM_Y-.08,az,bx,PLATFORM_Y-.08,bz,.12,.14);
+      solid.setColor(0xf7f6f1);
+      for(const y of [.5,.95])addBeam(solid,ax,PLATFORM_Y+y,az,bx,PLATFORM_Y+y,bz,.12,.12);
+      const n=Math.max(1,Math.ceil(Math.hypot(bx-ax,bz-az)/2.5));
+      for(let k=0;k<=n;k++){const x=ax+(bx-ax)*k/n,z=az+(bz-az)*k/n;addBeam(solid,x,PLATFORM_Y,z,x,PLATFORM_Y+1,z,.2,.2)}
+      boxes.push((ax+bx)/2,PLATFORM_Y+.5,(az+bz)/2,Math.hypot(bx-ax,bz-az)/2,.5,.08,-Math.atan2(bz-az,bx-ax));
+    }
+  }
+
+  // 3) Stairs + golden gates on all four sides (centre of each rect edge).
   for (const s of sides) {
     const steps = 4;
     for (let k = 0; k < steps; k++) {
@@ -137,7 +160,7 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
       const top = (PLATFORM_Y * (k + 1)) / steps;
       const [x, z] = at(s.u + s.nu * out, s.v + s.nv * out);
       const along: [number, number] = s.nu !== 0 ? [vx, vz] : [ux, uz];
-      solid.setColor(k % 2 ? 0xb5262c : 0xc8323a);
+      solid.setColor(isLawkanandar ? 0xe6dfd2 : k % 2 ? 0xb5262c : 0xc8323a);
       addBeam(solid, x - along[0] * stairW / 2, top / 2, z - along[1] * stairW / 2, x + along[0] * stairW / 2, top / 2, z + along[1] * stairW / 2, 0.45, top);
       // Box local Z runs along the platform's u axis (yawU), local X along v.
     }
@@ -188,17 +211,18 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
 
   // 4) Main stupa on three white terraces, centred on the mapped node when it is inside.
   const centre = Math.hypot(lm.x - cx, lm.z - cz) < minSide * 0.25 ? [lm.x, lm.z] : [cx, cz];
-  const baseR = Math.max(4, minSide * 0.2);
-  const H = Math.min(38, Math.max(14, minSide * 0.5));
+  // Published Sittwe dimensions: 162 ft total height, 232 ft circumference, eight surrounding cetis.
+  const baseR=isLawkanandar?11.25:Math.max(4,minSide*.2);
+  const H=isLawkanandar?49.4-PLATFORM_Y-2.7:Math.min(38,Math.max(14,minSide*.5));
   const yawRect = Math.atan2(-ux, -uz);
   for (let t = 0; t < 3; t++) {
-    const s = baseR * (2.3 - t * 0.35);
+    const s = baseR * (isLawkanandar ? 3.1 - t * 0.3 : 2.3 - t * 0.35);
     const y = PLATFORM_Y + t * 0.9;
-    solid.setColor(t % 2 ? 0xd9a93c : 0xf6f4ee);
+    solid.setColor(isLawkanandar?0xe8e2d7:t % 2 ? 0xd9a93c : 0xf6f4ee);
     // Square terrace aligned with the platform.
     addBeam(solid, centre[0]! - ux * s / 2, y + 0.45, centre[1]! - uz * s / 2, centre[0]! + ux * s / 2, y + 0.45, centre[1]! + uz * s / 2, s, 0.9);
   }
-  boxes.push(centre[0]!, PLATFORM_Y + 1.35, centre[1]!, baseR * 1.15, 1.35, baseR * 1.15, yawRect);
+  boxes.push(centre[0]!, PLATFORM_Y + 1.35, centre[1]!, baseR * (isLawkanandar?1.55:1.15), 1.35, baseR * (isLawkanandar?1.55:1.15), yawRect);
   const stupa = new THREE.Mesh(stupaGeometry(28), gold);
   stupa.scale.set(baseR * 2, H, baseR * 2);
   stupa.position.set(centre[0]!, PLATFORM_Y + 2.7, centre[1]!);
@@ -213,9 +237,27 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
   }
   colliders.push(centre[0]!, centre[1]!, baseR * 1.1);
 
+  if(isLawkanandar){
+    const stone=new THREE.MeshStandardMaterial({color:0x716955,roughness:.9});stone.userData['own']=true;
+    const shadow=new THREE.MeshStandardMaterial({color:0x262723,roughness:1});shadow.userData['own']=true;
+    for(let i=0;i<4;i++){
+      const angle=i*Math.PI/2,niche=new THREE.Group();niche.position.set(centre[0]!+Math.sin(angle)*(baseR+.25),PLATFORM_Y+1.8,centre[1]!+Math.cos(angle)*(baseR+.25));niche.rotation.y=angle;
+      const shape=new THREE.Shape();shape.moveTo(-1.2,0);shape.lineTo(1.2,0);shape.lineTo(1.2,2.6);shape.absarc(0,2.6,1.2,0,Math.PI,false);shape.closePath();
+      const opening=new THREE.Mesh(new THREE.ShapeGeometry(shape),shadow);opening.position.z=.1;niche.add(opening);
+      for(const x of [-1.5,1.5]){const post=new THREE.Mesh(new THREE.BoxGeometry(.38,3,.5),stone);post.position.set(x,1.5,0);niche.add(post);}
+      const arch=new THREE.Mesh(new THREE.TorusGeometry(1.5,.2,8,24,Math.PI),stone);arch.position.set(0,2.7,0);niche.add(arch);
+      for(let k=0;k<=10;k++){const a=k*Math.PI/10,leaf=new THREE.Mesh(new THREE.ConeGeometry(.14,.48,6),gold);leaf.position.set(Math.cos(a)*1.75,2.7+Math.sin(a)*1.75,0);leaf.rotation.z=a-Math.PI/2;niche.add(leaf);}
+      const throne=new THREE.Mesh(new THREE.BoxGeometry(1.25,.35,.45),gold);throne.position.set(0,.2,.2);niche.add(throne);
+      const torso=new THREE.Mesh(new THREE.SphereGeometry(.3,12,10),gold);torso.scale.set(1,1.5,.65);torso.position.set(0,.85,.22);niche.add(torso);
+      const head=new THREE.Mesh(new THREE.SphereGeometry(.19,12,10),gold);head.position.set(0,1.42,.22);niche.add(head);
+      const legs=new THREE.Mesh(new THREE.SphereGeometry(.5,12,8),gold);legs.scale.set(1,.26,.5);legs.position.set(0,.48,.23);niche.add(legs);
+      group.add(niche);
+    }
+  }
+
   // 5) Ring of small stupas.
   const smallGeo = stupaGeometry(14);
-  const ringR = Math.min(minSide * 0.36, baseR * 2.2);
+  const ringR = isLawkanandar?Math.min(minSide*.32,23):Math.min(minSide * 0.36, baseR * 2.2);
   const count = 8;
   for (let k = 0; k < count; k++) {
     const a = (k / count) * Math.PI * 2 + Math.PI / 8;
@@ -231,7 +273,7 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
   }
 
   // 6) Corner pavilions with tiered red-and-gold roofs.
-  for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+  if(!isLawkanandar)for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
     const [px, pz] = at(su * (lenU / 2 - 4), sv * (lenV / 2 - 4));
     solid.setColor(0xf6f4ee);
     for (const [ox, oz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
@@ -247,20 +289,6 @@ export function buildPagoda(lm: ChunkLandmark): PagodaObjects | null {
     }
     colliders.push(px, pz, 1.6);
   }
-
-  // 7) Palms at the outer corners, outside the platform.
-  const palmMesh = new THREE.InstancedMesh(palmGeometry(), materials().vegetation, 8);
-  let pi = 0;
-  const mtx = new THREE.Matrix4();
-  for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-    for (const off of [3, 8]) {
-      const [px, pz] = at(su * (lenU / 2 + off), sv * (lenV / 2 + (off === 3 ? 6 : 2)));
-      palmMesh.setMatrixAt(pi++, mtx.makeTranslation(px, 0, pz));
-    }
-  }
-  palmMesh.castShadow = true;
-  palmMesh.computeBoundingSphere();
-  group.add(palmMesh);
 
   const solidMesh = new THREE.Mesh(solid.build(), materials().solid);
   solidMesh.castShadow = true;

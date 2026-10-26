@@ -29,6 +29,7 @@ import {
 } from '../src/geo/chunkFormat';
 import { buildGraphData } from '../src/geo/roadGraph';
 import { fitPromenade } from '../src/geo/promenade';
+import { roundaboutSite } from '../src/geo/landmarkSite';
 import { linkLandmarks, markCompounds, toRecord } from '../src/geo/landmarkLinker';
 import { clipPolyline, clipRing, distToSegmentSq, pointInRing, ringBounds, ringCentroid, rectsIntersect, type Pt, type Rect } from '../src/geo/geometry2d';
 import type { AreaProps, BuildingProps, LandmarkProps, PlaceProps, RoadProps, WaterwayProps } from '../src/geo/OSMParser';
@@ -229,6 +230,7 @@ function main(): void {
     return best;
   };
   const link = linkLandmarks(records, allLandmarks, clearance);
+  for(const lm of allLandmarks)if(lm.id==='node/1230796347')lm.h=49.4;
   console.log(`Compound outlines: ${compounds}; landmarks linked to buildings: ${link.linked}; stupa spots: ${link.stupas}`);
 
   const allPlaces: PlaceEntry[] = [];
@@ -252,6 +254,11 @@ function main(): void {
   const markets = allLandmarks.filter((l) => l.k === 'marketplace');
   for (const lm of allLandmarks) {
     if (lm.k !== 'clock') continue;
+    const site=roundaboutSite(lm.x,lm.z,roadXZ.map(r=>({p:flat(r.pts),w:r.props.width})));
+    if(site){
+      lm.sourcePosition={x:lm.x,z:lm.z};
+      lm.x=r2(site.x);lm.z=r2(site.z);
+    }
     const name = `${lm.n} ${lm.ne ?? ''}`;
     if (/old|ဟောင်း|victoria|1887/i.test(name)) lm.cs = 'colonial';
     else if (/new|သစ်/i.test(name)) lm.cs = 'burmese';

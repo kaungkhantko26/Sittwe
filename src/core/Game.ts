@@ -10,12 +10,19 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { PlayerController, type PlayerInput } from '../player/PlayerController';
 import { ThirdPersonCamera, type CameraMode, type VehicleCameraMode } from '../player/ThirdPersonCamera';
 import { AudioManager } from '../systems/AudioManager';
+import { Housing, HOME_FLOOR, type HomeLocation } from '../systems/Housing';
+import { Pedestrians } from '../systems/Pedestrians';
+import { Rooms } from '../systems/Rooms';
+import { RemotePlayers } from '../systems/RemotePlayers';
+import type { PlayerSnapshot } from '../systems/RoomProtocol';
+import { roomPanel } from '../ui/RoomPanel';
 import { Navigation } from '../systems/Navigation';
 import { PerformanceManager } from '../systems/PerformanceManager';
 import { SaveManager, type SaveData } from '../systems/SaveManager';
 import { QUALITY_PRESETS, safeStorage, SettingsStore, type Settings } from '../systems/Settings';
 import { showFatalError } from '../ui/errors';
 import { FullMap, type SearchEntry } from '../ui/Minimap';
+import { TouchControls } from '../ui/TouchControls';
 import { HUD } from '../ui/HUD';
 import { getLang, setLang, t } from '../ui/i18n';
 import { aboutContent, controlsContent, LoadingScreen, MainMenu, Modal, PauseMenu } from '../ui/Screens';
@@ -23,7 +30,6 @@ import { settingsContent } from '../ui/SettingsPanel';
 import { VehicleSystem } from '../vehicles/VehicleInteraction';
 import type { DriveInput } from '../vehicles/VehiclePhysics';
 import { TrafficSystem } from '../vehicles/Traffic';
-import { BODY_COLORS } from '../vehicles/VehicleModel';
 import { WorldManager } from '../world/WorldManager';
 import { GameLoop } from './GameLoop';
 import { InputManager } from './InputManager';
@@ -54,6 +60,13 @@ export class Game {
 
   private physics!: PhysicsWorld;
   private world!: WorldManager;
+  private housing!: Housing;
+  private pedestrians!: Pedestrians;
+  private rooms!:Rooms;
+  private remotePlayers!:RemotePlayers;
+  private roomBadge:HTMLButtonElement|null=null;
+  private homeCandidate: HomeLocation | null = null;
+  private homeRequest = 0;
   private lighting!: LightingManager;
   private weather!: Weather;
   private player!: PlayerController;
@@ -146,9 +159,15 @@ export class Game {
         vegetationDensity: preset.vegetationDensity,
         lang: s.language,
       });
-      const sp = manifest.spawn.player;
+      const boundaries=await loader.boundaries();
+      this.world.setBoundaries(boundaries);
+      this.housing = new Housing(loader, manifest, sea, safeStorage(),boundaries);
+      await this.housing.init();
+      this.world.setHome(this.housing.home);
+      this.pedestrians = new Pedestrians(this.scene,this.world);
+      const sp = { ...this.housing.home, yaw: Math.PI };
       this.player = new PlayerController(this.physics, s.playerName, sp.x, sp.z, s.character);
-      this.player.faceYaw(sp.yaw);
+      this.player.teleport(sp.x,sp.z,sp.yaw,HOME_FLOOR);
       // The player can swim anywhere there is water (sea, ponds, canals); cars stay out of it.
       this.player.water = (x, z) => this.world.isBlocked(x, z);
       this.player.onSwimChange = (swimming) => {
@@ -167,6 +186,11 @@ export class Game {
         this.traffic = new TrafficSystem(this.scene, this.physics, this.nav.graph);
         this.traffic.maxCars = preset.trafficCars;
       }
+      this.remotePlayers=new RemotePlayers(this.scene);
+      this.rooms=new Rooms(()=>this.networkSnapshot());
+      this.rooms.onPlayers=players=>this.remotePlayers.receive(players);
+      this.rooms.onJoin=s=>void this.joinRoomAt(s);
+      this.rooms.onChange=()=>{if(this.roomBadge)this.roomBadge.textContent=this.rooms.status};
       this.buildUi(manifest);
       if (this.nav) {
         this.nav.onRouteChanged = (pts) => {
@@ -198,10 +222,16 @@ export class Game {
       },
       onOpenMap: () => this.openMap(),
     });
+    this.roomBadge=document.createElement('button');this.roomBadge.className='btn room-badge';this.roomBadge.textContent='Rooms · Solo play';this.roomBadge.addEventListener('click',()=>this.openRooms());this.hud.root.append(this.roomBadge);
+    new TouchControls(this.hud.root,this.input,{map:()=>this.openMap(),pause:()=>this.pause()});
     this.fullMap = new FullMap(
       this.ui,
       {
-        onSetDestination: (x, z) => this.setDestination({ x, z }),
+        onSetDestination: (x, z) => { this.cancelHomePreview(); this.setDestination({ x, z }); },
+        onPreviewHome: (x,z) => void this.previewHomeAt(x,z),
+        onConfirmHome: () => void this.confirmHome(),
+        onCancelHome: () => this.cancelHomePreview(),
+        onGoHome: () => { this.closeMap(); void this.goHome(); },
         onClearDestination: () => this.setDestination(null),
         onTeleport: (x, z) => this.teleportTo(x, z),
         onClose: () => this.closeMap(),
@@ -220,6 +250,7 @@ export class Game {
       onLanguage: () => this.settings.update({ language: getLang() === 'en' ? 'rki' : 'en' }),
       onCharacter: (c) => this.settings.update({ character: c }),
     });
+    const roomsButton=document.createElement('button');roomsButton.className='btn menu-btn';roomsButton.textContent='Play with friends · Rooms';roomsButton.addEventListener('click',()=>this.openRooms());this.menu.el.querySelector('.menu-buttons')!.append(roomsButton);
     this.pauseMenu = new PauseMenu(this.ui, {
       onResume: () => this.resume(),
       onSave: () => this.saveGame(true),
@@ -269,6 +300,8 @@ export class Game {
   }
 
   private applySettings(s: Settings, prev: Settings | null): void {
+    const touch=s.touchControls==='on'||(s.touchControls==='auto'&&matchMedia('(pointer: coarse)').matches);
+    document.documentElement.classList.toggle('touch-enabled',touch);document.documentElement.classList.toggle('touch-disabled',!touch);
     const preset = QUALITY_PRESETS[s.quality];
     if (!prev || prev.quality !== s.quality) {
       this.renderer.setPixelRatio(preset.pixelRatio);
@@ -320,6 +353,7 @@ export class Game {
     this.menu.setContinueEnabled(this.saves.load().ok);
     this.menu.refreshText();
     this.menu.show(true);
+    this.input.clearTouch();
     this.input.exitPointerLock();
   }
 
@@ -332,7 +366,7 @@ export class Game {
       if (res.ok) save = res.data;
       else if (res.reason !== 'none') this.hud.toast(t('corruptSave'), 4);
     }
-    const target = save ? save.player : { x: m.spawn.player.x, y: 0, z: m.spawn.player.z, yaw: m.spawn.player.yaw };
+    const target = save ? save.player : { ...this.housing.home, y: HOME_FLOOR, yaw: Math.PI };
     this.menu.show(false);
     this.loading.show(true);
     this.loading.set(0, t('loading'));
@@ -343,7 +377,8 @@ export class Game {
     if (save) {
       this.vehicles.restore(save.vehicles);
       const spot = this.world.findFreeSpot(save.player.x, save.player.z);
-      this.player.teleport(spot.x, spot.z, save.player.yaw);
+      const atHome=Math.abs(save.player.x-this.housing.home.x)<4.2 && Math.abs(save.player.z-this.housing.home.z)<4.2;
+      this.player.teleport(atHome?save.player.x:spot.x,atHome?save.player.z:spot.z,save.player.yaw,atHome?Math.max(HOME_FLOOR,save.player.y):0);
       this.cycle.setHours(save.timeOfDay);
       this.cam.yaw = save.camera.yaw;
       this.cam.pitch = save.camera.pitch;
@@ -357,10 +392,9 @@ export class Game {
       }
     } else {
       m.spawn.vehicles.forEach((v, i) => this.vehicles.vehicles[i]?.reset(v.x, v.z, v.yaw));
-      const spot = this.world.findFreeSpot(m.spawn.player.x, m.spawn.player.z);
-      this.player.teleport(spot.x, spot.z, m.spawn.player.yaw);
+      this.player.teleport(this.housing.home.x,this.housing.home.z,Math.PI,HOME_FLOOR);
       this.cycle.setHours(8.5);
-      this.cam.mode = 'third';
+      this.cam.mode = 'first';
       this.cam.pitch = 0.3;
       this.setDestination(null);
     }
@@ -370,7 +404,7 @@ export class Game {
     this.hud.show(true);
     this.hud.refreshText(!!this.vehicles.driving);
     this.input.requestPointerLock();
-    this.hud.toast(t('clickToPlay'), 3);
+    this.hud.toast(document.documentElement.classList.contains('touch-enabled')?'Left stick to move · Drag the right side to look · Map to return home':t('clickToPlay'), 5);
   }
 
   private pause(): void {
@@ -378,6 +412,7 @@ export class Game {
     this.state = 'paused';
     this.audio.stopDanceMusic();
     this.pauseMenu.show(true);
+    this.input.clearTouch();
     this.input.exitPointerLock();
     this.audio.suspend();
   }
@@ -397,6 +432,7 @@ export class Game {
     if (this.state === 'map') return;
     this.mapReturn = this.state === 'boot' ? 'menu' : this.state;
     this.suppressPause = true;
+    this.input.clearTouch();
     this.input.exitPointerLock();
     this.state = 'map';
     this.pauseMenu.show(false);
@@ -407,6 +443,7 @@ export class Game {
 
   private closeMap(): void {
     if (this.state !== 'map') return;
+    this.cancelHomePreview();
     this.fullMap.close();
     this.suppressPause = false;
     if (this.mapReturn === 'menu') {
@@ -483,6 +520,7 @@ export class Game {
   private exitVehicle(force = false): void {
     const v = this.vehicles.driving;
     if (!v) return;
+    if(!force && v.physics.flying && v.position.y>1.5){this.hud.toast('Land before leaving the vehicle — G to descend',2);return;}
     if (!force && v.speedKmh > 25) {
       this.hud.toast('Slow down to exit', 1.5);
       return;
@@ -510,6 +548,69 @@ export class Game {
     }
   }
 
+  private networkSnapshot():PlayerSnapshot {
+    const v=this.vehicles.driving,p=v?v.position:this.player.position,s=this.settings.get();
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying}:null};
+  }
+
+  private openRooms():void {
+    if(this.state==='playing')this.pause();
+    this.modal.open('Play with friends',roomPanel(this.rooms,()=>{
+      this.modal.close();if(this.state==='menu')void this.startGame(false);else if(this.state==='paused')this.resume();
+    }));
+  }
+
+  private async joinRoomAt(s:PlayerSnapshot):Promise<void> {
+    this.modal.close();
+    if(this.state==='menu')await this.startGame(false);else if(this.state==='paused')this.resume();
+    this.teleportTo(s.x+3,s.z+3);
+  }
+
+  private cancelHomePreview(): void {
+    this.homeRequest++;
+    this.homeCandidate=null;
+    this.world.previewHome(null);
+    this.fullMap?.setHomeStatus('Choose a map pin or search a place, then check a residential plot.',false);
+  }
+
+  private async previewHomeAt(x: number,z: number): Promise<void> {
+    const request=++this.homeRequest;
+    this.homeCandidate=null;this.world.previewHome(null);
+    this.fullMap.setHomeStatus('Checking residential land, roads, water and buildings…',false);
+    try {
+      const p={x,z};const reason=await this.housing.validate(p);
+      if(request!==this.homeRequest)return;
+      if(reason){this.fullMap.setHomeStatus(reason,false);return;}
+      await this.world.prepareArea(x,z,1);
+      if(request!==this.homeRequest)return;
+      this.homeCandidate=p;this.world.previewHome(p);
+      this.fullMap.setHomeStatus('Clear residential plot: 14 × 20 m. Preview the footprint on the map, then make this your home.',true,p);
+    } catch {if(request===this.homeRequest)this.fullMap.setHomeStatus('Could not load this area. Please try again.',false);}
+  }
+
+  private async confirmHome(): Promise<void> {
+    const p=this.homeCandidate;if(!p)return;
+    const request=++this.homeRequest;
+    this.fullMap.setHomeStatus('Saving your home…',false);
+    try {
+      const reason=await this.housing.validate(p);
+      if(request!==this.homeRequest)return;
+      if(reason){this.fullMap.setHomeStatus(reason,false);return;}
+      if(!this.housing.commit(p)){this.fullMap.setHomeStatus('Browser storage is unavailable. Your existing home is unchanged.',true,p);return;}
+      this.world.setHome(p);this.cancelHomePreview();this.closeMap();
+      await this.goHome();
+      this.saveGame(false);this.hud.toast('Your Rakhine home is saved on this browser. M → Go home returns here.',5);
+    } catch {this.fullMap.setHomeStatus('Could not save this plot. Please try again.',true,p);}
+  }
+
+  private async goHome(): Promise<void> {
+    if(this.vehicles.driving)this.exitVehicle(true);
+    const p=this.housing.home;
+    await this.world.prepareArea(p.x,p.z,1);
+    this.player.teleport(p.x,p.z,Math.PI,HOME_FLOOR);
+    this.cam.mode='first';this.cam.snapBehind(Math.PI);this.setDestination(null);
+  }
+
   private teleportTo(x: number, z: number): void {
     if (this.vehicles.driving) this.exitVehicle(true);
     this.loading.show(true);
@@ -526,7 +627,7 @@ export class Game {
     if (!this.manifest || this.state === 'boot' || this.state === 'menu') return;
     const p = this.vehicles.driving ? this.vehicles.driving.position : this.player.position;
     const ok = this.saves.save({
-      player: { x: p.x, y: 0, z: p.z, yaw: this.player.yaw },
+      player: { x: p.x, y: Math.max(0,p.y-0.98), z: p.z, yaw: this.player.yaw },
       drivingVehicle: this.vehicles.driving ? this.vehicles.vehicles.indexOf(this.vehicles.driving) : null,
       selectedVehicle: this.selectedVehicle,
       vehicles: this.vehicles.snapshot(),
@@ -558,14 +659,14 @@ export class Game {
     const inp = this.input;
     const driving = this.vehicles.driving;
     const drive: DriveInput = driving
-      ? { throttle: inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0, brake: inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0, steer: inp.axis('KeyD', 'KeyA') + inp.axis('ArrowRight', 'ArrowLeft'), handbrake: inp.isDown('Space') }
+      ? { throttle: Math.max(inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0,-inp.touchMove.y), brake: Math.max(inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0,inp.touchMove.y), steer: inp.axis('KeyD', 'KeyA') + inp.axis('ArrowRight', 'ArrowLeft') - inp.touchMove.x, handbrake: inp.isDown('KeyX'), lift:inp.isDown('Space'), descend:inp.isDown('ControlLeft')||inp.isDown('ControlRight'), boost:inp.isDown('ShiftLeft')||inp.isDown('ShiftRight') }
       : { throttle: 0, brake: 0, steer: 0, handbrake: false };
     drive.steer = Math.max(-1, Math.min(1, drive.steer));
     this.vehicles.fixedUpdate(dt, drive);
 
     if (!driving) {
-      const fwd = inp.axis('KeyS', 'KeyW') + inp.axis('ArrowDown', 'ArrowUp');
-      const right = inp.axis('KeyA', 'KeyD') + inp.axis('ArrowLeft', 'ArrowRight');
+      const fwd = inp.axis('KeyS', 'KeyW') + inp.axis('ArrowDown', 'ArrowUp') - inp.touchMove.y;
+      const right = inp.axis('KeyA', 'KeyD') + inp.axis('ArrowLeft', 'ArrowRight') + inp.touchMove.x;
       const yaw = this.cam.yaw;
       // Camera-relative movement: forward = (-sin yaw, -cos yaw), right = (cos yaw, -sin yaw).
       const pi: PlayerInput = {
@@ -579,7 +680,7 @@ export class Game {
     }
     if (this.traffic) {
       const p = driving ? driving.position : this.player.position;
-      const obstacles: Array<[number, number]> = [[p.x, p.z]];
+      const obstacles: Array<[number, number]> = [[p.x, p.z],...this.vehicles.vehicles.filter(v=>v.position.y<3).map(v=>[v.position.x,v.position.z] as [number,number])];
       this.traffic.fixedUpdate(dt, p.x, p.z, obstacles, (x, z) => !this.world.isOccupied(x, z, 2));
     }
     this.physics.step();
@@ -588,6 +689,7 @@ export class Game {
 
   private update(dt: number, alpha: number): void {
     this.perf.frame(dt);
+    if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();this.remotePlayers.update(dt,p.x,p.z);}
     if (this.state === 'boot' && !this.world) return;
     const inp = this.input;
 
@@ -658,6 +760,11 @@ export class Game {
       }
     }
     this.lastHour = hour;
+    if(this.state==='playing') {
+      const focus=this.focusPoint();
+      this.pedestrians.maxPeople=this.settings.get().quality==='low'?8:18;
+      this.pedestrians.update(Math.min(dt,.05),focus.x,focus.z,this.cycle.hours);
+    }
     if (this.state === 'map') {
       const p = this.focusPoint();
       this.fullMap.updatePlayer({ x: p.x, z: p.z, heading: this.facingHeading() });
@@ -688,17 +795,17 @@ export class Game {
     // Si Mee (ဆီမီး) oil-lamp dance — performed by the Rakhine Girl.
     if (inp.wasPressed('KeyJ') && !driving) {
       if (this.player.anim.dancing) this.stopDance();
-      else if (this.player.character !== 'girl') this.hud.toast('The Si Mee lamp dance is performed by the Rakhine Girl — switch character in Settings', 3);
       else if (this.player.swimming || !this.player.isGrounded) this.hud.toast('Find solid ground to dance', 2);
       else {
         this.player.anim.startDance();
         this.audio.startDanceMusic();
         this.cam.snapBehind(this.player.yaw + Math.PI); // face the dancer
-        this.hud.toast('ဆီမီး Si Mee lamp dance — J or move to stop', 3);
+        this.hud.toast(this.player.character==='boy'?'Kyin-inspired shield dance — J or move to stop':'ဆီမီး Si Mee lamp dance — J or move to stop', 3);
       }
     }
-    if (this.player.anim.dancing && (inp.isDown('KeyW') || inp.isDown('KeyA') || inp.isDown('KeyS') || inp.isDown('KeyD') || inp.isDown('Space'))) this.stopDance();
+    if (this.player.anim.dancing && (inp.isDown('KeyW') || inp.isDown('KeyA') || inp.isDown('KeyS') || inp.isDown('KeyD') || inp.isDown('Space') || Math.hypot(inp.touchMove.x,inp.touchMove.y)>.2)) this.stopDance();
     if (inp.wasPressed('KeyC')) this.hud.toast(`${t('cameraMode')}: ${this.cam.cycleMode(!!driving)}`, 1.2);
+    if(inp.wasPressed('KeyG') && driving){driving.physics.toggleFlight();this.hud.toast(driving.physics.landing?'Landing — keep clear of buildings':driving.physics.flying?'Flight: Space up · Ctrl down · WASD steer · G land':'Ground drive',3);}
     if (inp.wasPressed('KeyL') && driving) this.vehicles.toggleHeadlights();
     if (inp.wasPressed('KeyR') && driving) {
       this.vehicles.resetDriven();
@@ -708,7 +815,11 @@ export class Game {
       this.hintsVisible = !this.hintsVisible;
       this.ui.classList.toggle('hide-hints', !this.hintsVisible);
     }
-    if (inp.wasPressed('KeyE') && !driving) {
+    if (inp.wasPressed('KeyE') && !driving && this.world.nearHomeDoor(this.player.position.x,this.player.position.z)) {
+      this.world.toggleHomeDoor();
+    } else if (inp.wasPressed('KeyE') && !driving && this.pedestrians.nearby(this.player.position.x,this.player.position.z)) {
+      this.hud.toast(this.pedestrians.nearby(this.player.position.x,this.player.position.z)!,3);
+    } else if (inp.wasPressed('KeyE') && !driving) {
       const lm = this.nearestLandmark(25);
       if (lm) this.hud.toast(`${lm.name} — ${lm.cat}`, 3);
     }
@@ -740,10 +851,16 @@ export class Game {
         yaw = Math.atan2(-dx, -dz);
       }
     }
-    const spot = this.world.findFreeSpot(x, z, 40);
+    let spot:{x:number;z:number}|null=null;
+    for(let i=0;i<18;i++) {
+      const offset=(i%2?1:-1)*Math.ceil(i/2)*6;
+      const cx=x-Math.sin(yaw)*offset,cz=z-Math.cos(yaw)*offset;
+      if(this.world.hasChunkAt(cx,cz)&&this.world.isOnRoad(cx,cz,0)&&!this.world.isBlocked(cx,cz)&&this.vehicles.canPlace(cx,cz,yaw)){spot={x:cx,z:cz};break;}
+    }
+    if(!spot){this.hud.toast('No clear parking space nearby. Move along the road and try V again.',3);return;}
     const extras = this.vehicles.vehicles.slice(this.vehicles.baseCount).filter((v) => v !== this.vehicles.driving);
     if (extras.length >= 4) this.vehicles.remove(extras[0]!);
-    this.vehicles.spawnAt(spot.x, spot.z, yaw, BODY_COLORS[Math.floor(Math.random() * BODY_COLORS.length)]!);
+    this.vehicles.spawnAt(spot.x, spot.z, yaw, 0xf1f3f4);
     this.hud.toast('🚗 Car spawned nearby — press F to drive', 2);
   }
 
@@ -769,7 +886,9 @@ export class Game {
 
     let prompt: string | null = null;
     if (!driving) {
-      if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');
+      if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
+      else if(this.pedestrians.nearby(p.x,p.z)) prompt='E — '+this.pedestrians.nearby(p.x,p.z);
+      else if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');
       else {
         const lm = this.nearestLandmark(25);
         if (lm) prompt = `E — ${lm.name}`;

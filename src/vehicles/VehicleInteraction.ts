@@ -42,6 +42,12 @@ export class VehicleSystem {
   /** Number of cars placed by the map (not spawned by the player). */
   baseCount = 0;
 
+  canPlace(x:number,z:number,yaw:number,ignore?:Vehicle):boolean {
+    if(this.vehicles.some(v=>v!==ignore&&Math.hypot(v.position.x-x,v.position.z-z)<5.5))return false;
+    const R=this.physics.R;
+    return !this.physics.world.intersectionWithShape({x,y:GROUND_Y+1,z},{x:0,y:Math.sin(yaw/2),z:0,w:Math.cos(yaw/2)},new R.Cuboid(2.55,.65,2.6),undefined,undefined,ignore?.physics.collider,ignore?.physics.body);
+  }
+
   /** Adds a drivable car (used for map spawns, player spawns and taken-over traffic). */
   spawnAt(x: number, z: number, yaw: number, color: number): Vehicle {
     return this.add(x, z, yaw, color);
@@ -137,7 +143,7 @@ export class VehicleSystem {
       const prev = v.position.clone();
       v.syncFromBody();
       const p = v.position;
-      if (blocked(p.x, p.z)) {
+      if (p.y<3 && blocked(p.x, p.z)) {
         // Push back to the last dry position and kill velocity.
         const body = v.physics.body;
         body.setTranslation({ x: prev.x, y: Math.max(prev.y, p.y), z: prev.z }, true);
@@ -194,7 +200,9 @@ export class VehicleSystem {
     states.forEach((s, i) => {
       const yaw = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(s.qx, s.qy, s.qz, s.qw), 'YXZ').y;
       const v = this.vehicles[i] ?? this.add(s.x, s.z, yaw, BODY_COLORS[i % BODY_COLORS.length]!);
-      v.reset(s.x, s.z, yaw);
+      let x=s.x,z=s.z;
+      for(let step=0;step<30 && this.vehicles.slice(0,i).some(other=>Math.hypot(other.position.x-x,other.position.z-z)<6);step++){x=s.x+Math.cos(yaw)*6*(step+1);z=s.z-Math.sin(yaw)*6*(step+1)}
+      v.reset(x, z, yaw);
     });
   }
 }

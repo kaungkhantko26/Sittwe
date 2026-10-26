@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { ChunkLandmark } from '../geo/chunkFormat';
 import { addBeam, addFlatPolygon, GeometryBuilder } from './GeometryBuilder';
 import { materials } from './materials';
+import { flagTexture } from './FlagTexture';
 import { palmGeometry } from './VegetationGenerator';
 
 /**
@@ -119,32 +120,6 @@ function spiralTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function myanmarFlag(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 180;
-  c.height = 120;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#fecb00';
-  g.fillRect(0, 0, 180, 40);
-  g.fillStyle = '#34b233';
-  g.fillRect(0, 40, 180, 40);
-  g.fillStyle = '#ea2839';
-  g.fillRect(0, 80, 180, 40);
-  // White five-pointed star.
-  g.fillStyle = '#ffffff';
-  g.beginPath();
-  for (let k = 0; k < 10; k++) {
-    const r = k % 2 ? 22 : 54;
-    const a = -Math.PI / 2 + (k * Math.PI) / 5;
-    g.lineTo(90 + Math.cos(a) * r, 64 + Math.sin(a) * r);
-  }
-  g.closePath();
-  g.fill();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 function signTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 384;
@@ -185,24 +160,28 @@ function tetrapodGeometry(): THREE.BufferGeometry {
 
 /** Golden figure playing a flute, on the lotus base (artistic, modelled on the reference). */
 function fluteFigure(): THREE.Group {
-  const g = new THREE.Group();
-  const gold = materials().gold;
-  const part = (geo: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => {
-    const m = new THREE.Mesh(geo, gold);
-    m.position.set(x, y, z);
-    m.rotation.set(rx, ry, rz);
-    m.castShadow = true;
-    g.add(m);
-  };
-  part(new THREE.CylinderGeometry(0.28, 0.42, 1.5, 12), 0, 0.75, 0); // lower robe
-  part(new THREE.CylinderGeometry(0.26, 0.3, 0.8, 12), 0, 1.9, 0); // torso
-  part(new THREE.SphereGeometry(0.22, 14, 10), 0, 2.5, 0); // head
-  part(new THREE.ConeGeometry(0.2, 0.5, 8), 0, 2.85, 0); // crown
-  part(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 8), 0.28, 2.0, -0.18, 0.5, 0, 0.6); // right upper arm
-  part(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 8), -0.28, 2.0, -0.18, 0.5, 0, -0.6); // left upper arm
-  part(new THREE.CylinderGeometry(0.03, 0.03, 1.0, 8), 0.05, 2.32, -0.3, 0, 0, Math.PI / 2 - 0.25); // flute
-  part(new THREE.TorusGeometry(0.42, 0.04, 6, 20), 0, 1.5, 0, Math.PI / 2, 0, 0); // sash ring
-  return g;
+  const g=new THREE.Group(),gold=materials().gold;
+  const part=(geo:THREE.BufferGeometry,x:number,y:number,z:number,sx=1,sy=1,sz=1)=>{const m=new THREE.Mesh(geo,gold);m.position.set(x,y,z);m.scale.set(sx,sy,sz);m.castShadow=true;g.add(m);return m;};
+  const limb=(a:[number,number,number],b:[number,number,number],r:number)=>{const av=new THREE.Vector3(...a),bv=new THREE.Vector3(...b),m=part(new THREE.CylinderGeometry(r*.8,r,av.distanceTo(bv),10),0,0,0);m.position.copy(av.clone().add(bv).multiplyScalar(.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),bv.sub(av).normalize());};
+  // Separate feet, bent legs and wrapped garment give the musician a human silhouette.
+  limb([-.2,1.55,0],[-.28,.8,0],.14);limb([-.28,.8,0],[-.28,.16,0],.1);
+  limb([.2,1.55,0],[.55,1.05,-.1],.14);limb([.55,1.05,-.1],[.72,.55,.1],.1);
+  part(new THREE.SphereGeometry(.15,12,8),-.28,.12,-.1,1,.6,1.7);part(new THREE.SphereGeometry(.15,12,8),.75,.52,-.03,1,.6,1.7);
+  part(new THREE.CylinderGeometry(.36,.47,.72,16),0,1.53,0,1,1,.72);
+  for(let i=0;i<12;i++){const a=i*Math.PI/6;limb([Math.cos(a)*.36,1.8,Math.sin(a)*.25],[Math.cos(a)*.47,1.18,Math.sin(a)*.34],.025);}
+  part(new THREE.LatheGeometry([[.24,0],[.28,.2],[.4,.6],[.42,.72],[.18,.82]].map(([r,y])=>new THREE.Vector2(r,y)),16),0,1.9,0,1,1,.65);
+  part(new THREE.CylinderGeometry(.12,.14,.22,10),0,2.8,0);
+  part(new THREE.SphereGeometry(.25,16,12),0,3.06,-.02,.9,1.1,.85);
+  part(new THREE.SphereGeometry(.075,8,6),0,3.03,-.235,.6,.7,1.2);
+  part(new THREE.CylinderGeometry(.26,.24,.07,16),0,3.22,0);
+  part(new THREE.ConeGeometry(.19,.36,12),0,3.43,0);
+  limb([-.39,2.58,0],[-.63,2.35,-.12],.105);limb([-.63,2.35,-.12],[-.35,2.99,-.4],.085);
+  limb([.39,2.58,0],[.7,2.65,-.15],.105);limb([.7,2.65,-.15],[.22,2.99,-.4],.085);
+  for(const x of [-.35,.22])part(new THREE.SphereGeometry(.1,10,8),x,2.99,-.4);
+  limb([-.78,3,-.44],[.65,3,-.44],.035);
+  for(let i=0;i<7;i++)part(new THREE.TorusGeometry(.038,.008,4,8),-.6+i*.16,3,-.44).rotation.y=Math.PI/2;
+  const sash=part(new THREE.TorusGeometry(.37,.045,6,20),0,2.35,0,1,1,.7);sash.rotation.z=.55;
+  g.scale.setScalar(1.1);return g;
 }
 
 export interface PromenadeObjects {
@@ -337,6 +316,7 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
   lotus.position.set(px0, py, pz0);
   lotus.castShadow = true;
   group.add(lotus);
+  for(let i=0;i<16;i++){const a=i*Math.PI/8,petal=new THREE.Mesh(new THREE.SphereGeometry(1,10,8),materials().gold);petal.scale.set(.22,.43,.16);petal.position.set(px0+Math.cos(a)*1.15,py+.48,pz0+Math.sin(a)*1.15);petal.rotation.set(Math.sin(a)*.35,0,-Math.cos(a)*.35);petal.castShadow=true;group.add(petal);}
   const deity = fluteFigure();
   deity.position.set(px0, py + 1.1, pz0);
   deity.rotation.y = Math.atan2(ux, uz) + Math.PI; // faces inland, toward visitors
@@ -347,7 +327,8 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
     const bx = px0 + Math.cos(a) * (plazaR - 1.6);
     const bz = pz0 + Math.sin(a) * (plazaR - 1.6);
     solid.setColor(0xd8d4cc);
-    addBeam(solid, bx - Math.sin(a) * 0.9, 0.42, bz + Math.cos(a) * 0.9, bx + Math.sin(a) * 0.9, 0.42, bz - Math.cos(a) * 0.9, 0.5, 0.44);
+    addBeam(solid,bx-Math.sin(a)*.9,.65,bz+Math.cos(a)*.9,bx+Math.sin(a)*.9,.65,bz-Math.cos(a)*.9,.55,.12);
+    for(const side of [-1,1])addBeam(solid,bx+Math.sin(a)*.62*side,.2,bz-Math.cos(a)*.62*side,bx+Math.sin(a)*.62*side,.6,bz-Math.cos(a)*.62*side,.35,.35);
   }
 
   // 4) Observation tower: white with a blue spiral stripe, balcony and red roof.
@@ -355,43 +336,37 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
   const oz = tipSt.z + lz * Math.min(plazaR + 5, tipSt.l - 3);
   const towerMat = new THREE.MeshStandardMaterial({ map: spiralTexture(), roughness: 0.7 });
   towerMat.userData['own'] = true;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.3, 12, 24), towerMat);
-  shaft.position.set(ox, 6.2, oz);
-  shaft.castShadow = true;
-  group.add(shaft);
-  const balcony = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 0.3, 24), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7 }));
-  (balcony.material as THREE.Material).userData['own'] = true;
-  balcony.position.set(ox, 12.3, oz);
-  group.add(balcony);
-  for (let k = 0; k < 16; k++) {
-    const a = (k / 16) * Math.PI * 2;
-    solid.setColor(0x3a6fb5);
-    addBeam(solid, ox + Math.cos(a) * 2.7, 12.45, oz + Math.sin(a) * 2.7, ox + Math.cos(a) * 2.7, 13.3, oz + Math.sin(a) * 2.7, 0.08, 0.08);
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.85,4.1,32),towerMat);shaft.position.set(ox,2.25,oz);shaft.castShadow=true;group.add(shaft);
+  const ivory=new THREE.MeshStandardMaterial({color:0xeee9db,roughness:.75});ivory.userData['own']=true;
+  const red=new THREE.MeshStandardMaterial({color:0xb9362a,roughness:.7});red.userData['own']=true;
+  const balcony=new THREE.Mesh(new THREE.CylinderGeometry(2.3,2.3,.22,32),ivory);balcony.position.set(ox,4.4,oz);group.add(balcony);
+  for(let k=0;k<16;k++){
+    const a=k*Math.PI/8;
+    solid.setColor(0xe9e5d8);addBeam(solid,ox+Math.cos(a)*2.2,4.5,oz+Math.sin(a)*2.2,ox+Math.cos(a)*2.2,5.28,oz+Math.sin(a)*2.2,.07,.07);
+    if(k%2===0)addBeam(solid,ox+Math.cos(a)*1.45,4.5,oz+Math.sin(a)*1.45,ox+Math.cos(a)*1.45,6.1,oz+Math.sin(a)*1.45,.12,.12);
   }
-  const lantern = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x99ccff, emissiveIntensity: 0.2, roughness: 0.2 }));
-  (lantern.material as THREE.Material).userData['own'] = true;
-  lantern.position.set(ox, 13.5, oz);
-  group.add(lantern);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 2.2, 16), new THREE.MeshStandardMaterial({ color: 0xd2453a, roughness: 0.6 }));
-  (roof.material as THREE.Material).userData['own'] = true;
-  roof.position.set(ox, 15.6, oz);
-  roof.castShadow = true;
-  group.add(roof);
+  const rail=new THREE.Mesh(new THREE.TorusGeometry(2.2,.05,6,32),ivory);rail.rotation.x=Math.PI/2;rail.position.set(ox,5.28,oz);group.add(rail);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(2.35,1.1,8),red);roof.position.set(ox,6.55,oz);roof.castShadow=true;group.add(roof);
+  const finial=new THREE.Mesh(new THREE.ConeGeometry(.08,.35,8),ivory);finial.position.set(ox,7.22,oz);group.add(finial);
   colliders.push(ox, oz, 2.4);
 
   // Historic cannon on a stone base, pointing out to sea.
   const cx0 = tipSt.x - lx * Math.min(plazaR + 2.5, tipSt.r - 2) - ux * 2;
   const cz0 = tipSt.z - lz * Math.min(plazaR + 2.5, tipSt.r - 2) - uz * 2;
-  solid.setColor(0xb8ab92);
-  addBeam(solid, cx0, 0.2, cz0, cx0, 1.1, cz0, 1.6, 1.6);
-  const metal = new THREE.MeshStandardMaterial({ color: 0x2c2826, roughness: 0.45, metalness: 0.7 });
-  metal.userData['own'] = true;
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 2.6, 14), metal);
-  barrel.position.set(cx0 - ux * 0.6, 1.45, cz0 - uz * 0.6);
-  barrel.lookAt(cx0 - ux * 3, 1.75, cz0 - uz * 3);
-  barrel.rotateX(Math.PI / 2);
-  barrel.castShadow = true;
-  group.add(barrel);
+  const cannon=new THREE.Group();cannon.position.set(cx0,.14,cz0);cannon.rotation.y=Math.atan2(-ux,-uz);
+  const stone=new THREE.MeshStandardMaterial({color:0xc8b99a,roughness:.95});stone.userData['own']=true;
+  const iron=new THREE.MeshStandardMaterial({color:0x3c3029,roughness:.68,metalness:.65});iron.userData['own']=true;
+  const bore=new THREE.MeshStandardMaterial({color:0x100e0c,roughness:1});bore.userData['own']=true;
+  const part=(geo:THREE.BufferGeometry,mat:THREE.Material,x:number,y:number,z:number)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;cannon.add(m);return m};
+  part(new THREE.BoxGeometry(1.35,.2,2.8),stone,0,.1,0);
+  for(const sx of [-.43,.43])for(let row=0;row<3;row++)for(let block=0;block<3;block++)part(new THREE.BoxGeometry(.28,.21,.42),stone,sx,.32+row*.22,-.55+block*.45);
+  const tube=part(new THREE.CylinderGeometry(.235,.19,2.2,18,1,true),iron,0,1.05,0);tube.rotation.x=Math.PI/2-.07;
+  const muzzle=part(new THREE.TorusGeometry(.225,.04,8,20),iron,0,1.13,1.1);muzzle.rotation.x=-.07;
+  part(new THREE.CircleGeometry(.198,18),bore,0,1.12,1.075).rotation.y=Math.PI;
+  for(const z of [-.85,-.15,.65]) {const band=part(new THREE.TorusGeometry(.23,.025,6,18),iron,0,1.05+z*.07,z);band.rotation.x=-.07}
+  part(new THREE.SphereGeometry(.19,12,8),iron,0,.98,-1.12);
+  const axle=part(new THREE.CylinderGeometry(.08,.08,1.15,10),iron,0,1.05,0);axle.rotation.z=Math.PI/2;
+  group.add(cannon);
   colliders.push(cx0, cz0, 1.0);
 
   // 5) Seawall balustrade with pillars on both sides, palms in planters, lamps, benches.
@@ -428,11 +403,9 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
       if (i % 2 === 1) {
         const q = edge(st[i]!, side, 1.8);
         solid.setColor(0x23262b);
-        addBeam(solid, q[0], 0.16, q[1], q[0], 4.6, q[1], 0.14, 0.14);
-        addBeam(solid, q[0], 4.6, q[1], q[0], 5.0, q[1], 0.42, 0.42);
-        const g = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.35, 0.3), materials().lampHead);
-        g.position.set(q[0], 4.85, q[1]);
-        group.add(g);
+        addBeam(solid,q[0],.16,q[1],q[0],3.4,q[1],.1,.1);
+        const lantern=new THREE.Mesh(new THREE.CylinderGeometry(.18,.12,.4,6),materials().lampHead);lantern.position.set(q[0],3.58,q[1]);group.add(lantern);
+        const cap=new THREE.Mesh(new THREE.ConeGeometry(.25,.2,6),materials().metal);cap.position.set(q[0],3.9,q[1]);group.add(cap);
         // Stone bench between lamps.
         const bq = edge(st[i]!, side, 2.6);
         solid.setColor(0xd8d4cc);
@@ -441,7 +414,18 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
     }
   }
 
-  // 6) Gazebo with a red roof, Myanmar flag and the entrance sign (inland end).
+  const cafeStation=st[Math.min(L-1,Math.round(L*.58))]!;
+  const cafeX=cafeStation.x+lx*(cafeStation.l-5),cafeZ=cafeStation.z+lz*(cafeStation.l-5);
+  const cafeCream=new THREE.MeshStandardMaterial({color:0xe5dfcf,roughness:.8});cafeCream.userData['own']=true;
+  const cafeGlass=new THREE.MeshStandardMaterial({color:0x3d636c,metalness:.25,roughness:.25});cafeGlass.userData['own']=true;
+  for(const y of [.3,2.95,5.7]){const slab=new THREE.Mesh(new THREE.CylinderGeometry(3.9,3.9,.22,32),cafeCream);slab.position.set(cafeX,y,cafeZ);slab.castShadow=true;group.add(slab);}
+  for(const y of [1.65,4.3]){
+    const windows=new THREE.Mesh(new THREE.CylinderGeometry(3.55,3.55,2.4,32),cafeGlass);windows.position.set(cafeX,y,cafeZ);group.add(windows);
+    for(let i=0;i<12;i++){const a=i*Math.PI/6,post=new THREE.Mesh(new THREE.BoxGeometry(.15,2.5,.15),cafeCream);post.position.set(cafeX+Math.cos(a)*3.6,y,cafeZ+Math.sin(a)*3.6);group.add(post);}
+  }
+  colliders.push(cafeX,cafeZ,4);
+
+  // 6) Gazebo with a red roof, user-supplied Rakhine flag and the entrance sign (inland end).
   const gi = Math.min(L - 1, Math.round(L * 0.4));
   const gs = st[gi]!;
   const gx = gs.x + lx * Math.max(4, gs.l - 5);
@@ -461,7 +445,7 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
   const fz = es.z - lz * Math.max(3, es.r - 3);
   solid.setColor(0xe8e8e8);
   addBeam(solid, fx, 0.16, fz, fx, 9, fz, 0.12, 0.12);
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.2), new THREE.MeshStandardMaterial({ map: myanmarFlag(), side: THREE.DoubleSide }));
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.2), new THREE.MeshStandardMaterial({ map: flagTexture(), side: THREE.DoubleSide }));
   (flag.material as THREE.Material).userData['own'] = true;
   flag.position.set(fx + ux * 0.95, 8.3, fz + uz * 0.95);
   flag.rotation.y = Math.atan2(ux, uz) - Math.PI / 2;
@@ -491,8 +475,9 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
   solidMesh.castShadow = true;
   solidMesh.receiveShadow = true;
   group.add(solidMesh);
-  const palmMesh = new THREE.InstancedMesh(palmGeometry(), materials().vegetation, palms.length);
-  palms.forEach((m, i) => palmMesh.setMatrixAt(i, m));
+  const clearPalms=palms.filter(m=>{const p=new THREE.Vector3().setFromMatrixPosition(m);return Math.hypot(p.x-cafeX,p.z-cafeZ)>6&&Math.hypot(p.x-ox,p.z-oz)>3;});
+  const palmMesh = new THREE.InstancedMesh(palmGeometry(), materials().vegetation, clearPalms.length);
+  clearPalms.forEach((m, i) => palmMesh.setMatrixAt(i, m));
   palmMesh.castShadow = true;
   palmMesh.computeBoundingSphere();
   group.add(palmMesh);

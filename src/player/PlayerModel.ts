@@ -23,6 +23,7 @@ export interface PlayerRig {
   expression?: (e: 'neutral' | 'happy') => void;
   /** Oil lamps for the Si Mee dance (children of root; hidden unless dancing). */
   lamps?: THREE.Object3D[];
+  danceProps?: THREE.Object3D[];
 }
 
 export function createNameTag(name: string): THREE.Sprite {

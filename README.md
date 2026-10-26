@@ -2,7 +2,7 @@
 
 A browser-based 3D open-world exploration and driving game set in a real, geographically referenced **Sittwe (စစ်တွေ), Rakhine State, Myanmar**. Roads, building footprints, coastline, canals, bridges and landmarks are generated from OpenStreetMap data. Play as a **Rakhine boy or girl** in traditional dress, walk, swim, and drive across the Sittwe peninsula.
 
-Single-player MVP. It needs no backend or account and deploys as a static site.
+Solo exploration plus browser-hosted multiplayer rooms for up to eight players. The game deploys as a static site; room discovery uses PeerJS signaling and gameplay snapshots use WebRTC. No account is required.
 
 ## Quick start
 
@@ -120,7 +120,7 @@ How it stays fast:
 - Shadow-frustum texel snapping.
 - Vendor code split into parallel cacheable chunks.
 
-**Measured** in the Claude desktop app's embedded Chromium on the author's Mac, "High" preset:
+**Historical baseline, before housing, NPCs and multiplayer:** measured in an embedded Chromium browser on the author's Mac, "High" preset:
 
 | Measurement | Result |
 |---|---|
@@ -136,7 +136,7 @@ These numbers come from a single machine; low-end hardware has not been tested. 
 ## Known limitations
 
 - All building heights are estimates. OSM has no height data for this area. See "Next steps".
-- Terrain is flat (no DEM). Water is blocked off rather than swimmable, and you can cross water only on mapped bridges and piers.
+- Terrain is flat (no DEM). Players can swim; ground vehicles are kept out of deep water. Flying cars can cross above it.
 - The vehicle is an arcade-style model on Rapier's raycast vehicle (suspension, tyre friction, rear-wheel drive). There is no gearbox or torque-curve simulation.
 - Second UI language is **Rakhine (ရခိုင်, `rki`)**. The strings in `src/ui/i18n.ts` use the formal written register and need review by a native Rakhine speaker. Place/landmark labels use OSM `name:rki` when mapped (none are yet in Sittwe), otherwise the locally mapped Myanmar-script `name`.
 - The character and car are procedural primitive models, not rigged GLB assets.
@@ -160,3 +160,18 @@ Relative asset paths support the `/Sittwe/` project path as well as root-domain 
 ## Licensing & attribution
 
 See [ATTRIBUTION.md](ATTRIBUTION.md). Map data © OpenStreetMap contributors (ODbL 1.0). No proprietary assets or code (including OpenTaxi's) and no Google Maps data are used.
+
+
+## Housing, flying cars, touch controls and rooms
+
+- **Home:** a reference-inspired Het Laung house with red corrugated gable, raised timber floor, porch lattice, stairs, an openable door, bed, shelf, pottery and fenced yard. New games start inside. The first-person camera avoids the cramped indoor third-person view; use **C** or the touch **View** button to change it.
+- **Permanent local home:** open **M → search or select a pin → Check home plot → Make this my home**. Plot checks cover the whole 14 × 20 m yard, nearby road access, mapped residential land, buildings, water, restricted land, landmarks, trees, lamps and mapped fences. **Go home** returns to the house. Ownership is saved in this browser; it is not shared online real-estate ownership. Mapped buildings are not removed to make room.
+- **Reference-inspired electric flying sedan:** player vehicles have a sculpted body, panoramic glass canopy, four physical rotor pods, animated fans and blue thruster accents. **V** spawns one only in a clear road space; **F** enters. **Space** takes off/ascends, **Ctrl** descends, **W/S** moves, **A/D** turns, **Shift** boosts, **G** toggles flight/landing, **X** is the ground handbrake, and **R** resets upright. Landing checks the surface below; exit is prevented at flight altitude. Ambient traffic uses ordinary ground cars.
+- **NPCs:** eight occupational silhouettes with rounded faces and distinct clothing/props: vendor, neighbour, student with backpack, gardener, visitor, elder, worker and performer. They walk, pause, carry parcels, tend plants and perform idle activities. Populations are bounded and change with time of day; NPCs are decorative local simulations, not synchronized multiplayer agents.
+- **Dance:** **J** performs the girl's Si Mee lamp sequence or the boy's shield-and-stick sequence inspired by the supplied Kyin board. These are artistic animations, not motion-captured or ethnographic reconstructions.
+- **Touch:** phones and tablets automatically receive a joystick, drag-to-look area and action buttons. **Settings → Touch controls** can force these on or off for hybrid devices. New touch-device installations use Low graphics; saved preferences are preserved. Portrait, landscape, notches and tablet layouts are supported. Recent WebGL 2 browsers are required; physical-device performance varies.
+- **Rooms:** **Play with friends → Create room**, share the six-character code, and **Back to game**. Friends select **Join room** and enter it. The host must keep the tab open. Up to eight players exchange bounded 12 Hz position/animation/car snapshots with interpolated rendering; slow channels drop snapshots rather than accumulating queues. No microphone or camera permissions are used. Public signaling availability, NAT/firewall restrictions and network latency can prevent a connection; dedicated TURN infrastructure is not configured. Homes, traffic and NPC simulation remain local. Rooms end when the host leaves.
+- **Maps and streets:** the full map offers an online OpenStreetMap street basemap and a bundled game-map view. Names on the game map and 3D signposts use the 23 named streets in the source dataset. The selected location can be opened in Google Maps for comparison. Unnamed mapped roads remain unnamed rather than receiving guessed names.
+- **Landmark fixes:** the clock model and its map marker now share the area centroid of its mapped roundabout (the original source point is retained). New tower colours follow photographic references. Vegetation and generated lights avoid pagoda courtyards, entrances and other landmark grounds. Courtyard fences leave stair entrances clear. Three explicitly mapped wall/fence lines are preserved from the PBF extract; this is not a complete survey of Sittwe property boundaries.
+
+The five supplied PNG boards remain in the repository as design references. Runtime assets are Three.js geometry and procedural materials, not 3D meshes extracted from the PNGs. See [LANDMARK_SOURCES.md](LANDMARK_SOURCES.md) for evidence and remaining geographic limitations.

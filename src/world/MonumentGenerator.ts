@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { ChunkLandmark, ChunkRoad } from '../geo/chunkFormat';
-import { pointInRing, type Pt } from '../geo/geometry2d';
-import { addFlatPolygon, GeometryBuilder } from './GeometryBuilder';
+import { pointInRing, ringCentroid, type Pt } from '../geo/geometry2d';
+import { addBeam, addFlatPolygon, GeometryBuilder } from './GeometryBuilder';
+import { flagTexture } from './FlagTexture';
 import { LABEL_FONT } from './LandmarkGenerator';
 import { materials } from './materials';
 
@@ -78,29 +79,6 @@ function plaqueTexture(lm: ChunkLandmark): THREE.CanvasTexture {
   });
 }
 
-function buddhistFlag(): THREE.CanvasTexture {
-  const cols = ['#0052b4', '#ffd200', '#d7141a', '#ffffff', '#ff8c00'];
-  return canvasTexture(240, 150, (g) => {
-    cols.forEach((c, i) => {
-      g.fillStyle = c;
-      g.fillRect(i * 40, 0, 40, 150);
-    });
-    cols.forEach((c, i) => {
-      g.fillStyle = c;
-      g.fillRect(200, i * 30, 40, 30);
-    });
-  });
-}
-
-function redWhiteFlag(): THREE.CanvasTexture {
-  return canvasTexture(240, 150, (g) => {
-    g.fillStyle = '#d0262b';
-    g.fillRect(0, 0, 240, 75);
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 75, 240, 75);
-  });
-}
-
 function clockFaceTexture(): THREE.CanvasTexture {
   return canvasTexture(256, 256, (g) => {
     g.fillStyle = '#f7f4ea';
@@ -135,12 +113,12 @@ function clockFaceTexture(): THREE.CanvasTexture {
 /**
  * Clock towers (artistic, ~15 m) with four clock faces.
  *  - colonial: cream tower, red hip roof, weather vane (Old Clock Tower, 1887).
- *  - burmese: white tower with gold trim and a tiered gold roof (New Clock Tower).
+ *  - burmese: green-and-cream tower with gold trim and a tiered gold roof (New Clock Tower).
  */
 function clockTower(own: (m: THREE.Material) => THREE.Material, style: 'colonial' | 'burmese' = 'colonial'): { group: THREE.Group; height: number } {
   const group = new THREE.Group();
   const burmese = style === 'burmese';
-  const cream = own(flatMat(burmese ? 0xf7f6f1 : 0xf1e6c8));
+  const cream = own(flatMat(burmese ? 0x287154 : 0x8a3830));
   const trim = own(burmese ? new THREE.MeshStandardMaterial({ color: 0xd9a93c, roughness: 0.35, metalness: 0.7 }) : flatMat(0xb8463a));
   const box = (w: number, h: number, d: number, y: number, m: THREE.Material) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -151,6 +129,19 @@ function clockTower(own: (m: THREE.Material) => THREE.Material, style: 'colonial
   };
   box(3.4, 0.5, 3.4, 0, trim);
   box(2.6, 9, 2.6, 0.5, cream);
+  if(burmese) for(const x of [-1.26,1.26]) for(const z of [-1.26,1.26]) {
+    const rib=new THREE.Mesh(new THREE.BoxGeometry(.12,9.2,.12),trim);rib.position.set(x,5.1,z);group.add(rib);
+  }
+  if(burmese){
+    const tex=canvasTexture(128,512,g=>{
+      g.fillStyle='#3d8b52';g.fillRect(0,0,128,512);g.strokeStyle='#e7dba2';g.lineWidth=5;g.strokeRect(3,3,122,506);
+      for(const x of [12,103]){g.fillStyle='#465d65';g.fillRect(x,25,13,110);g.fillRect(x,365,13,110)}
+      g.strokeStyle='#e5d79b';g.lineWidth=4;
+      for(let y=30;y<480;y+=50){g.beginPath();g.moveTo(64,y);g.bezierCurveTo(30,y+15,90,y+30,64,y+50);g.stroke();g.beginPath();g.ellipse(53,y+20,7,13,-.7,0,Math.PI*2);g.stroke()}
+    });
+    const panel=own(new THREE.MeshStandardMaterial({map:tex,roughness:.8}));
+    for(let i=0;i<4;i++){const a=i*Math.PI/2,m=new THREE.Mesh(new THREE.PlaneGeometry(2.35,8.4),panel);m.position.set(Math.sin(a)*1.307,5,Math.cos(a)*1.307);m.rotation.y=a;group.add(m)}
+  }
   box(3.0, 0.3, 3.0, 9.5, trim);
   box(2.8, 2.8, 2.8, 9.8, cream);
   box(3.1, 0.25, 3.1, 12.6, trim);
@@ -243,8 +234,7 @@ export function buildMonument(lm: ChunkLandmark, roads: ChunkRoad[], faceYaw: nu
   let cx = lm.x;
   let cz = lm.z;
   if (island) {
-    cx = island.ring.reduce((s, p) => s + p[0], 0) / island.ring.length;
-    cz = island.ring.reduce((s, p) => s + p[1], 0) / island.ring.length;
+    [cx,cz] = ringCentroid(island.ring);
     ring = scaleRing(island.ring, cx, cz, island.hw + 0.25);
   } else {
     ring = Array.from({ length: 12 }, (_, i): Pt => [lm.x + Math.cos((i / 12) * Math.PI * 2) * 5, lm.z + Math.sin((i / 12) * Math.PI * 2) * 5]);
@@ -268,6 +258,10 @@ export function buildMonument(lm: ChunkLandmark, roads: ChunkRoad[], faceYaw: nu
     beds.upTri(outer[i]![0], outer[i]![1], outer[j]![0], outer[j]![1], inner[j]![0], inner[j]![1], 0.32);
     beds.upTri(outer[i]![0], outer[i]![1], inner[j]![0], inner[j]![1], inner[i]![0], inner[i]![1], 0.32);
   }
+  if(lm.k==='clock')for(let i=0;i<ring.length;i++){
+    const a=ring[i]!,b=ring[(i+1)%ring.length]!;
+    beds.setColor(i%2?0xf2eee5:0xb93632);addBeam(beds,a[0],.2,a[1],b[0],.2,b[1],.22,.3);
+  }
   const groundMesh = new THREE.Mesh(ground.build(), materials().landuse);
   groundMesh.receiveShadow = true;
   group.add(groundMesh);
@@ -279,7 +273,7 @@ export function buildMonument(lm: ChunkLandmark, roads: ChunkRoad[], faceYaw: nu
 
   // Low white railing around the island edge.
   const rail = scaleRing(ring, cx, cz, 0.35);
-  const white = own(flatMat(0xf4f2ec));
+  const white = own(flatMat(lm.k==='clock'&&lm.cs==='burmese'?0x51764b:0xf4f2ec));
   const railGroup = new THREE.Group();
   for (let i = 0; i < rail.length; i++) {
     const a = rail[i]!;
@@ -297,10 +291,10 @@ export function buildMonument(lm: ChunkLandmark, roads: ChunkRoad[], faceYaw: nu
 
   if (lm.k === 'clock') {
     const tower = clockTower(own, lm.cs ?? 'colonial');
-    tower.group.position.set(lm.x, 0.13, lm.z);
+    tower.group.position.set(cx, 0.13, cz);
     tower.group.rotation.y = faceYaw;
     group.add(tower.group);
-    colliders.push(lm.x, lm.z, 1.8);
+    colliders.push(cx, cz, 1.8);
     return { group, colliders, height: tower.height };
   }
 
@@ -335,7 +329,7 @@ export function buildMonument(lm: ChunkLandmark, roads: ChunkRoad[], faceYaw: nu
 
   // --- Flagpoles either side of the statue. ---
   const metal = materials().metal;
-  const flags = [buddhistFlag(), redWhiteFlag()];
+  const flags = [flagTexture(), flagTexture()];
   const side = Math.min(radius * 0.7, 5);
   [-1, 1].forEach((s, i) => {
     const px = lm.x + Math.cos(faceYaw) * side * s;

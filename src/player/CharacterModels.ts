@@ -491,7 +491,16 @@ export function createRakhineBoy(name: string): PlayerRig {
 
   addFootwear(p.leftLeg, 0xc89a55, 0x4a2f1e, true);
   addFootwear(p.rightLeg, 0xc89a55, 0x4a2f1e, true);
-  return finish(p, name, 1);
+  const rig=finish(p,name,1);
+  const shield=new THREE.Group(),stick=new THREE.Group();
+  const shieldMat=solid(0x83372c),goldMat=solid(0xdab660);
+  const disc=new THREE.Mesh(new THREE.CylinderGeometry(.25,.25,.055,16).rotateX(Math.PI/2),shieldMat);disc.position.set(0,-.56,-.13);shield.add(disc);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(.24,.022,6,18),goldMat);rim.position.set(0,-.56,-.17);shield.add(rim);
+  const boss=new THREE.Mesh(new THREE.SphereGeometry(.075,8,6),goldMat);boss.position.set(0,-.56,-.18);shield.add(boss);
+  for(let i=0;i<8;i++){const a=i*Math.PI/4;const petal=new THREE.Mesh(new THREE.SphereGeometry(.035,6,4),goldMat);petal.position.set(Math.sin(a)*.16,-.56+Math.cos(a)*.16,-.17);shield.add(petal)}
+  const rod=new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,.65,8),solid(0xa4743e));rod.position.set(0,-.65,0);stick.add(rod);
+  p.leftArm.add(shield);p.rightArm.add(stick);shield.visible=false;stick.visible=false;rig.danceProps=[shield,stick];
+  return rig;
 }
 
 // ---------------------------------------------------------------------------
@@ -596,14 +605,12 @@ export function createCharacter(kind: CharacterKind, name: string): PlayerRig {
 
 /** Frees per-character GPU resources (textures, materials, geometries). */
 export function disposeCharacter(rig: PlayerRig): void {
-  rig.root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    m.geometry.dispose();
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    for (const mm of mats) {
-      (mm as THREE.MeshStandardMaterial).map?.dispose();
-      mm.dispose();
-    }
+  const geometries=new Set<THREE.BufferGeometry>(),mats=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
+  rig.root.traverse(o=>{
+    const mesh=o as THREE.Mesh;
+    if(!mesh.isMesh && !(o as THREE.Sprite).isSprite)return;
+    if(mesh.isMesh)geometries.add(mesh.geometry);
+    for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material]){mats.add(m);const map=(m as THREE.MeshStandardMaterial).map;if(map)textures.add(map)}
   });
+  geometries.forEach(g=>g.dispose());textures.forEach(t=>t.dispose());mats.forEach(m=>m.dispose());
 }

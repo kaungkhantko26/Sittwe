@@ -13,13 +13,14 @@
     "data:fetch": "tsx scripts/fetch-osm.ts",
     "data:extract": "tsx scripts/extract-pbf.ts",
     "data:convert": "tsx scripts/convert-osm.ts",
-    "data:chunks": "tsx scripts/build-chunks.ts",
+    "data:chunks": "tsx scripts/build-chunks.ts && tsx scripts/build-boundaries.ts",
     "data:validate": "tsx scripts/validate-map.ts",
     "data:all": "npm run data:fetch && npm run data:convert && npm run data:chunks && npm run data:validate"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
     "maplibre-gl": "^6.16.0",
+    "peerjs": "^1.5.5",
     "three": "^0.186.1"
   },
   "devDependencies": {

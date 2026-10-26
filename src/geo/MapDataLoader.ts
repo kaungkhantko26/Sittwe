@@ -1,5 +1,6 @@
 import { chunkFileName, type ChunkData, type SeaData, type WorldManifest } from './chunkFormat';
 import type { RoadGraphData } from './roadGraph';
+import type { BoundaryData } from '../world/BoundaryGenerator';
 import { validateChunk } from './validateChunk';
 
 /**
@@ -20,6 +21,10 @@ export class MapDataLoader {
     const type = res.headers.get('content-type') ?? '';
     if (type.includes('text/html')) throw new Error(`${path} was not found (the server returned an HTML page)`);
     return (await res.json()) as T;
+  }
+
+  async boundaries():Promise<BoundaryData> {
+    try{return await this.json<BoundaryData>('boundaries.json')}catch{return {version:1,lines:[]}}
   }
 
   async manifest(): Promise<WorldManifest> {

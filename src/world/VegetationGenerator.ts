@@ -143,6 +143,7 @@ export interface PlacementContext {
   buildings: PolygonIndex;
   roads: SegmentIndex;
   isWater: (x: number, z: number) => boolean;
+  isReserved?: (x:number,z:number)=>boolean;
 }
 
 /** Computes tree positions for one chunk (pure; deterministic per chunk key). */
@@ -155,7 +156,7 @@ export function placeTrees(chunkKey: string, mappedTrees: number[], landuse: Chu
     const x = mappedTrees[i]!;
     const z = mappedTrees[i + 1]!;
     // Mapped trees are kept even if near a road (they are real); only skip if inside a building.
-    if (ctx.buildings.hit(x, z)) continue;
+    if (ctx.buildings.hit(x, z) || ctx.isReserved?.(x,z)) continue;
     out.push({ x, z, type: rand() < 0.45 ? 0 : 1, scale: 0.85 + rand() * 0.35, rot: rand() * Math.PI * 2, mapped: true });
   }
   if (density <= 0) return out;

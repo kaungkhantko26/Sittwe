@@ -4,7 +4,7 @@ import { DEFAULT_ROAD_WIDTH } from '../geo/OSMParser';
 import type { RoadGraph } from '../geo/roadGraph';
 import { Groups } from '../physics/CollisionLayers';
 import { GROUND_Y, type PhysicsWorld } from '../physics/PhysicsWorld';
-import { createVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
+import { createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
 import { CAR } from './VehiclePhysics';
 
 /**
@@ -34,6 +34,7 @@ interface TrafficCar {
   z: number;
   spin: number;
   color: number;
+  stuck: number;
 }
 
 export class TrafficSystem {
@@ -115,8 +116,13 @@ export class TrafficSystem {
       const he = CAR.halfExtents;
       const collider = this.physics.world.createCollider(this.physics.R.ColliderDesc.cuboid(he.x, he.y, he.z).setTranslation(0, 0.25, 0).setCollisionGroups(Groups.vehicle), body);
       const len = Math.hypot(g.x(to) - g.x(node), g.z(to) - g.z(node));
-      const c: TrafficCar = { visual, body, collider, from: node, to, edge, dist: 0, len, speed: 0, yaw: Math.atan2(-(g.x(to) - g.x(node)), -(g.z(to) - g.z(node))), x: 0, z: 0, spin: 0, color };
+      const c: TrafficCar = { visual, body, collider, from: node, to, edge, dist: 0, len, speed: 0, yaw: Math.atan2(-(g.x(to) - g.x(node)), -(g.z(to) - g.z(node))), x: 0, z: 0, spin: 0, color, stuck:0 };
       this.pose(c);
+      if(this.physics.world.intersectionWithShape({x:c.x,y:y+.25,z:c.z},{x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},new this.physics.R.Cuboid(1.1,.4,2.6),undefined,Groups.vehicle,collider,body)||this.cars.some(o=>Math.hypot(o.x-c.x,o.z-c.z)<9)) {
+        disposeVehicleModel(visual);this.physics.world.removeRigidBody(body);continue;
+      }
+      body.setTranslation({x:c.x,y,z:c.z},true);
+      body.setRotation({x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},true);
       this.scene.add(visual.root);
       this.cars.push(c);
       return;
@@ -126,10 +132,7 @@ export class TrafficSystem {
   private despawn(i: number): void {
     const c = this.cars[i]!;
     this.scene.remove(c.visual.root);
-    c.visual.root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
-    });
+    disposeVehicleModel(c.visual);
     this.physics.world.removeRigidBody(c.body);
     this.cars.splice(i, 1);
   }
@@ -164,7 +167,7 @@ export class TrafficSystem {
     // Spawn / despawn around the player.
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i]!;
-      if (Math.hypot(c.x - px, c.z - pz) > 360) this.despawn(i);
+      if (Math.hypot(c.x - px, c.z - pz) > 360 || (c.stuck>10 && Math.hypot(c.x-px,c.z-pz)>25)) this.despawn(i);
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0 && this.cars.length < this.maxCars) {
@@ -174,6 +177,7 @@ export class TrafficSystem {
     while (this.cars.length > this.maxCars) this.despawn(this.cars.length - 1);
 
     for (const c of this.cars) {
+      const previous={from:c.from,to:c.to,edge:c.edge,dist:c.dist,len:c.len,x:c.x,z:c.z,yaw:c.yaw};
       const cls = this.graph.edgeClass(c.edge);
       let target = CRUISE[cls] ?? 6;
       // Look ahead for obstacles in a cone in front of the car.
@@ -203,6 +207,14 @@ export class TrafficSystem {
         c.dist = over;
       }
       this.pose(c);
+      const move=Math.hypot(c.x-previous.x,c.z-previous.z),samples=Math.max(1,Math.ceil(move/.4));
+      let blocked=false;
+      for(let i=1;i<=samples;i++) {
+        const x=previous.x+(c.x-previous.x)*i/samples,z=previous.z+(c.z-previous.z)*i/samples;
+        const hit=this.physics.world.intersectionWithShape({x,y:GROUND_Y+MODEL_GROUND_OFFSET+.25,z},{x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},new this.physics.R.Cuboid(1.02,.36,2.45),undefined,Groups.vehicle,c.collider,c.body);
+        if(hit){blocked=true;break;}
+      }
+      if(blocked){Object.assign(c,previous);c.speed=0;c.stuck+=dt}else c.stuck=c.speed<.1?c.stuck+dt:0;
       const y = GROUND_Y + MODEL_GROUND_OFFSET;
       c.body.setNextKinematicTranslation({ x: c.x, y, z: c.z });
       c.body.setNextKinematicRotation({ x: 0, y: Math.sin(c.yaw / 2), z: 0, w: Math.cos(c.yaw / 2) });

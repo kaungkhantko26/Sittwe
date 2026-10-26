@@ -32,6 +32,15 @@ const SI_MEE: DancePose[] = [
   { name: 'graceful lean', la: [2.25, -1.0], ra: [0.9, 0.6], body: [0, -0.4, 0.2], y: 0.9, bx: 0.05, ll: 0.1, rl: -0.15, head: -0.08, happy: false },
   { name: 'final pose', la: [2.0, -1.2], ra: [1.2, 0.4], body: [0, 0.2, -0.05], y: 0.92, bx: 0, ll: 0, rl: 0.1, head: 0.1, happy: true },
 ];
+const KYIN:DancePose[]=[
+ {name:'ready',la:[.5,-.5],ra:[1.9,.5],body:[0,0,0],y:.92,bx:0,ll:0,rl:0,head:0,happy:false},
+ {name:'step forward',la:[.8,-.7],ra:[2.6,.8],body:[-.1,.2,.06],y:.95,bx:.08,ll:-.45,rl:.3,head:0,happy:true},
+ {name:'turn',la:[.7,-1],ra:[2.3,.7],body:[0,0,0],y:.92,bx:0,ll:.2,rl:-.2,head:-.1,happy:false,spin:true},
+ {name:'low strike',la:[1,-.6],ra:[1.2,.5],body:[-.25,.2,.15],y:.62,bx:-.12,ll:1.1,rl:-.8,head:.1,happy:false},
+ {name:'shield up',la:[1.6,-.9],ra:[2.5,.7],body:[0,-.25,0],y:.92,bx:0,ll:.2,rl:-.2,head:0,happy:false},
+ {name:'high step',la:[.8,-.8],ra:[2.9,.5],body:[0,.2,-.1],y:1.08,bx:.05,ll:-.9,rl:.2,head:-.1,happy:true},
+ {name:'final pose',la:[.7,-.7],ra:[2.4,.6],body:[0,0,0],y:.92,bx:0,ll:0,rl:0,head:0,happy:true},
+];
 const POSE_SECONDS = 2.2;
 const HAND = new THREE.Vector3(0, -0.66, 0);
 const tmpV = new THREE.Vector3();
@@ -65,13 +74,13 @@ export class PlayerAnimations {
     this.dancing = true;
     this.danceT = 0;
     this.lastPose = -1;
-    for (const l of this.rig.lamps ?? []) l.visible = true;
+    for (const l of [...this.rig.lamps??[],...this.rig.danceProps??[]]) l.visible = true;
   }
 
   stopDance(): void {
     if (!this.dancing) return;
     this.dancing = false;
-    for (const l of this.rig.lamps ?? []) l.visible = false;
+    for (const l of [...this.rig.lamps??[],...this.rig.danceProps??[]]) l.visible = false;
     const r = this.rig;
     r.body.position.x = 0;
     r.body.rotation.set(0, 0, 0);
@@ -83,13 +92,14 @@ export class PlayerAnimations {
 
   private dance(dt: number): void {
     this.danceT += dt;
-    const n = SI_MEE.length;
+    const poses=this.rig.danceProps?.length?KYIN:SI_MEE;
+    const n = poses.length;
     const total = n * POSE_SECONDS;
     const t = this.danceT % total;
     const i = Math.floor(t / POSE_SECONDS);
     const local = (t - i * POSE_SECONDS) / POSE_SECONDS; // 0..1 within this pose
-    const prev = SI_MEE[(i + n - 1) % n]!;
-    const cur = SI_MEE[i]!;
+    const prev = poses[(i + n - 1) % n]!;
+    const cur = poses[i]!;
     if (i !== this.lastPose) {
       this.lastPose = i;
       this.rig.expression?.(cur.happy ? 'happy' : 'neutral');

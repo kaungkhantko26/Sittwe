@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
-import { createVehicleModel, type VehicleVisual } from './VehicleModel';
+import { createVehicleModel, disposeVehicleModel, type VehicleVisual } from './VehicleModel';
 import { CAR, VehiclePhysics, WHEEL_LAYOUT, type DriveInput } from './VehiclePhysics';
 
 /** A drivable car: physics + visuals + light state, with render interpolation. */
@@ -23,7 +23,7 @@ export class Vehicle {
     color: number,
   ) {
     this.physics = new VehiclePhysics(world, x, z, yaw);
-    this.visual = createVehicleModel(color);
+    this.visual = createVehicleModel(color,true);
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
@@ -59,6 +59,9 @@ export class Vehicle {
     const root = this.visual.root;
     root.position.lerpVectors(this.prevPos, this.currPos, alpha);
     root.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
+    for(const thrust of this.visual.thrusts)thrust.visible=this.physics.flying;
+    for(const rotor of this.visual.rotors)rotor.rotation.y+=dt*(this.physics.flying?75:12);
+    if(this.visual.thrustMat)this.visual.thrustMat.emissiveIntensity=this.physics.flying?3:.6;
     const c = this.physics.controller;
     for (let i = 0; i < 4; i++) {
       const w = this.visual.wheels[i]!;
@@ -90,6 +93,7 @@ export class Vehicle {
   }
 
   dispose(): void {
+    disposeVehicleModel(this.visual);
     this.physics.dispose();
   }
 }

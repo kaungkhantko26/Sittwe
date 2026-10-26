@@ -35,3 +35,13 @@ All are generated procedurally in code by this project: the character, car, tree
 ## Not affiliated
 
 This project is not affiliated with OpenTaxi, Google or any map provider. No proprietary code, models, textures or imagery from them are used.
+
+## Added reference-driven features
+
+The Het Laung house, electric flying sedan, NPC occupations, shield dance and cannon are procedural interpretations of the five design boards supplied by the user. The boards remain unchanged in the repository. Landmark research and uncertainty are recorded in [LANDMARK_SOURCES.md](LANDMARK_SOURCES.md).
+
+Mapped boundary lines and street names are OpenStreetMap data under the attribution/license above. Online street-map tiles are served by OpenStreetMap and credited in the map. The selected-place Google Maps link opens a separate reference view; Google map data and imagery are not redistributed.
+
+PeerJS (MIT) provides optional room signaling; WebRTC carries multiplayer snapshots. No audio/video capture is used. Rooms are browser-hosted sessions rather than an authoritative hosted game server.
+
+The flag texture is the exact image supplied by the user (`public/assets/rakhine-flag.png`), replacing the previous generated flags.
