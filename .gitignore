@@ -5,3 +5,7 @@ dist
 .vercel
 ._*
 data/pbf/*.osm.pbf
+
+.dev.vars
+.wrangler/
+relay-service/.wrangler/

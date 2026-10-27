@@ -13,3 +13,5 @@ Status: client and credential proxy are ready. A live TURN account and deployed 
 A 60-second stale-peer grace period and a timer independent of rendering reduce premature disconnects. Mobile browsers can still suspend background tabs; keep the host in the foreground while playing. No camera or microphone is requested.
 
 References: [WebRTC TURN](https://webrtc.org/getting-started/turn-server), [PeerJS configuration](https://peerjs.com/client/api/peer), [Metered credentials endpoint](https://www.metered.ca/docs/turn-rest-api/get-credential/).
+
+Alternative: store the provider’s complete ICE array as the Worker secret `TURN_ICE_SERVERS` using `npx wrangler secret put TURN_ICE_SERVERS`. This requires no provider management API key. Rotate this Worker secret when rotating the TURN credential; clients necessarily receive the scoped TURN username/password to authenticate their WebRTC connections. Never put either secret into `public/multiplayer.json` or Git.
