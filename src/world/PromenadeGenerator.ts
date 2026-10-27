@@ -350,10 +350,10 @@ export function buildPromenade(lm: ChunkLandmark): PromenadeObjects | null {
   const finial=new THREE.Mesh(new THREE.ConeGeometry(.08,.35,8),ivory);finial.position.set(ox,7.22,oz);group.add(finial);
   colliders.push(ox, oz, 2.4);
 
-  // Historic cannon on a stone base, pointing out to sea.
-  const cx0 = tipSt.x - lx * Math.min(plazaR + 2.5, tipSt.r - 2) - ux * 2;
-  const cz0 = tipSt.z - lz * Math.min(plazaR + 2.5, tipSt.r - 2) - uz * 2;
-  const cannon=new THREE.Group();cannon.position.set(cx0,.14,cz0);cannon.rotation.y=Math.atan2(-ux,-uz);
+  // Historic cannon at the seaward approach to the circular plaza (user reference).
+  const cx0 = px0 - ux * (plazaR + 3);
+  const cz0 = pz0 - uz * (plazaR + 3);
+  const cannon=new THREE.Group();cannon.name='historic-cannon';cannon.position.set(cx0,.14,cz0);cannon.rotation.y=Math.atan2(-ux,-uz);
   const stone=new THREE.MeshStandardMaterial({color:0xc8b99a,roughness:.95});stone.userData['own']=true;
   const iron=new THREE.MeshStandardMaterial({color:0x3c3029,roughness:.68,metalness:.65});iron.userData['own']=true;
   const bore=new THREE.MeshStandardMaterial({color:0x100e0c,roughness:1});bore.userData['own']=true;

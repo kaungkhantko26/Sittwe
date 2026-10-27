@@ -20,7 +20,7 @@ export class Vehicle {
     x: number,
     z: number,
     yaw: number,
-    color: number,
+    readonly color: number,
   ) {
     this.physics = new VehiclePhysics(world, x, z, yaw);
     this.visual = createVehicleModel(color,true);

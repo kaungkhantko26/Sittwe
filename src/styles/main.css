@@ -94,6 +94,7 @@ kbd { font: 600 11px var(--font); background: rgba(255, 255, 255, 0.12); border:
 /* Settings */
 .settings-section { border-top: 1px solid var(--border); padding-bottom: 6px; }
 .settings-section:first-child { border-top: 0; }
+.settings-section.locked .setting-control { opacity: 0.5; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 0; font-size: 14px; }
 .setting-control { display: flex; align-items: center; gap: 10px; }
 .setting-value { min-width: 70px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }

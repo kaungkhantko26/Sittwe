@@ -43,6 +43,7 @@ const STRINGS = {
   timeOfDay: { en: 'Time of day', rki: 'နေ့အချိန်' },
   dayLength: { en: 'Day length (real minutes)', rki: 'တစ်ရက်ကြာချိန် (မိနစ်)' },
   rain: { en: 'Rain', rki: 'မိုးရွာ' },
+  roomEnvironment: { en: 'In this room, time of day, day length and rain are set by the host.', rki: 'ဤအခန်းတွင် နေ့အချိန်၊ တစ်ရက်ကြာချိန်နှင့် မိုးကို အခန်းပိုင်ရှင်က သတ်မှတ်သည်။' },
   audio: { en: 'Audio', rki: 'အသံ' },
   masterVolume: { en: 'Master volume', rki: 'ပင်မအသံ' },
   sfxVolume: { en: 'Effects volume', rki: 'အသံပြယုဂ်' },

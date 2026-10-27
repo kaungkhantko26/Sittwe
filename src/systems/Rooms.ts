@@ -1,7 +1,8 @@
+import {RideSeats,validRideSeats,type RideSeat,type RoomPlayer} from './RideSeats';
 import {loadRoomNetwork,testRelay,relayFallbackServers,type RoomNetwork} from './RoomNetwork';
 import type Peer from 'peerjs';
 import type {DataConnection} from 'peerjs';
-import {MAX_ROOM_PLAYERS,ROOM_VERSION,newRoomCode,roomCode,validSnapshot,type PlayerSnapshot} from './RoomProtocol';
+import {MAX_ROOM_PLAYERS,ROOM_VERSION,newRoomCode,roomCode,validEnvironment,validSnapshot,type PlayerSnapshot,type RoomEnvironment} from './RoomProtocol';
 
 /** Browser-hosted rooms: a star topology, 12 Hz snapshots, bounded queues and no microphone/camera access. */
 export class Rooms {
@@ -9,6 +10,34 @@ export class Rooms {
   private links=new Map<string,DataConnection>();
   private states=new Map<string,{state:PlayerSnapshot;seen:number}>();
   private seq=0;private hosting=false;private generation=0;
+  private readonly rideSeats=new RideSeats();
+  ride:RideSeat|null=null;
+  private leavingRide=false;
+  private rideRequestTimer:ReturnType<typeof setTimeout>|null=null;
+  onRide:(seat:RideSeat|null)=>void=()=>{};
+  onRideMessage:(message:string)=>void=()=>{};
+  onSeats:(seats:RideSeat[])=>void=()=>{};
+  private roster():RoomPlayer[]{return [{id:this.peer?.id??'',state:this.local()},...[...this.states].map(([id,v])=>({id,state:v.state}))]}
+  private publishSeats(seats:RideSeat[]):void{
+    const assigned=seats.find(s=>s.playerId===this.peer?.id)??null;
+    if(!assigned)this.leavingRide=false;
+    const ride=this.leavingRide?null:assigned;
+    if(ride&&this.rideRequestTimer){clearTimeout(this.rideRequestTimer);this.rideRequestTimer=null;}
+    if(JSON.stringify(ride)!==JSON.stringify(this.ride)){this.ride=ride;this.onRide(ride);}
+    this.onSeats(seats);
+  }
+  requestRide(driverId:string):void {
+    if(!this.active||this.ride)return;
+    this.leavingRide=false;
+    if(this.rideRequestTimer)clearTimeout(this.rideRequestTimer);
+    this.rideRequestTimer=setTimeout(()=>{this.rideRequestTimer=null;this.onRideMessage('Seat request timed out. Refresh both games and try again.');},5000);
+    if(this.hosting){const error=this.rideSeats.request(this.peer!.id,driverId,this.roster());if(error){if(this.rideRequestTimer)clearTimeout(this.rideRequestTimer);this.rideRequestTimer=null;this.onRideMessage(error);}else this.publishSeats([...this.rideSeats.seats.values()]);}
+    else for(const c of this.links.values())this.send(c,{type:'ride-request',driverId});
+  }
+  leaveRide():void {
+    if(this.hosting){this.rideSeats.seats.delete(this.peer!.id);this.publishSeats([...this.rideSeats.seats.values()]);}
+    else {for(const c of this.links.values())this.send(c,{type:'ride-leave'});const old=this.ride;this.publishSeats([]);this.leavingRide=!!old;}
+  }
   code:string|null=null;
   status='Solo play';
   connecting=false;
@@ -26,6 +55,14 @@ export class Rooms {
   onPanelChange:()=>void=()=>{};
   onJoin:(state:PlayerSnapshot)=>void=()=>{};
   onPlayers:(players:Array<{id:string;state:PlayerSnapshot}>)=>void=()=>{};
+  /** The host's environment (time, day speed, rain), shared with everyone in the room. */
+  environment:()=>RoomEnvironment|null=()=>null;
+  /** Called on joiners with the host's environment, and with null when they stop following a host. */
+  onEnvironment:(env:RoomEnvironment|null)=>void=()=>{};
+  private followingHost=false;
+  /** True while a joined (non-host) player's time and weather come from the host. */
+  get followsHost():boolean{return this.followingHost}
+  private receiveEnvironment(raw:unknown):void{if(!this.hosting&&validEnvironment(raw)){this.followingHost=true;this.onEnvironment(raw);}}
   constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetwork){}
   get active():boolean{return this.code!==null}
   get count():number{return this.states.size+1}
@@ -110,12 +147,15 @@ export class Rooms {
   }
   private attach(c:DataConnection,incoming:boolean,generation:number):void {
     this.links.set(c.peer,c);
-    c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()});void this.inspectConnection(c,generation)});
+    c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local(),env:this.environment()});void this.inspectConnection(c,generation)});
     c.on('data',raw=>{
       if(generation!==this.generation||this.links.get(c.peer)!==c||!raw||typeof raw!=='object')return;
-      const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>};
-      if(p.type==='hello'&&this.hosting){this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()});return;}
-      if(p.type==='welcome')return;
+      const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>;driverId?:string;seats?:unknown;message?:string;env?:unknown};
+      if(p.type==='ride-request'&&this.hosting&&typeof p.driverId==='string'){const error=this.rideSeats.request(c.peer,p.driverId,this.roster());if(error)this.send(c,{type:'ride-error',message:error});return;}
+      if(p.type==='ride-leave'&&this.hosting){this.rideSeats.seats.delete(c.peer);return;}
+      if(p.type==='ride-error'&&!this.hosting&&typeof p.message==='string'){if(this.rideRequestTimer)clearTimeout(this.rideRequestTimer);this.rideRequestTimer=null;this.onRideMessage(p.message.slice(0,150));return;}
+      if(p.type==='hello'&&this.hosting){this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local(),env:this.environment()});return;}
+      if(p.type==='welcome'){this.receiveEnvironment(p.env);return;}
       if(p.type==='state'&&this.hosting&&validSnapshot(p.state)){
         const last=this.states.get(c.peer);if(last&&p.state.seq<=last.state.seq)return;
         this.states.set(c.peer,{state:p.state,seen:performance.now()});
@@ -123,6 +163,8 @@ export class Rooms {
       if(p.type==='world'&&!this.hosting&&Array.isArray(p.players)&&p.players.length<=MAX_ROOM_PLAYERS){
         const players=p.players.filter(v=>v&&typeof v.id==='string'&&v.id!==this.peer?.id&&v.id.length<100&&validSnapshot(v.state)) as Array<{id:string;state:PlayerSnapshot}>;
         this.states.clear();for(const v of players)this.states.set(v.id,{state:v.state,seen:performance.now()});
+        if(validRideSeats(p.seats))this.publishSeats(p.seats);
+        this.receiveEnvironment(p.env);
         this.onPlayers(players);this.announce(`Room ${this.code??'joining'} · ${players.length+1}/${MAX_ROOM_PLAYERS} players`);
       }
     });
@@ -136,15 +178,20 @@ export class Rooms {
     if(this.hosting){
       const now=performance.now();for(const [id,v] of this.states)if(now-v.seen>60000){this.states.delete(id);this.links.get(id)?.close()}
       const players=[{id:this.peer!.id,state:local},...[...this.states].map(([id,v])=>({id,state:v.state}))];
-      for(const c of this.links.values())this.send(c,{type:'world',version:ROOM_VERSION,players});
+      this.rideSeats.reconcile(players);const seats=[...this.rideSeats.seats.values()];this.publishSeats(seats);
+      const env=this.environment();for(const c of this.links.values())this.send(c,{type:'world',version:ROOM_VERSION,players,seats,env});
       this.onPlayers(players.filter(p=>p.id!==this.peer!.id));
       const text=`Room ${this.code} · ${players.length}/${MAX_ROOM_PLAYERS} players`;if(text!==this.status)this.announce(text);
     }else for(const c of this.links.values())this.send(c,{type:'state',state:local});
   }
   leave():void {
+    if(this.rideRequestTimer)clearTimeout(this.rideRequestTimer);this.rideRequestTimer=null;this.leavingRide=false;
+    this.rideSeats.seats.clear();this.publishSeats([]);
     this.generation++;this.code=null;this.hosting=false;this.connecting=false;
     if(this.heartbeat)clearInterval(this.heartbeat);this.heartbeat=null;
     for(const c of this.links.values())c.close();this.links.clear();this.states.clear();
-    this.peer?.destroy();this.peer=null;this.onPlayers([]);this.announce('Solo play');
+    this.peer?.destroy();this.peer=null;this.onPlayers([]);
+    if(this.followingHost){this.followingHost=false;this.onEnvironment(null);}
+    this.announce('Solo play');
   }
 }

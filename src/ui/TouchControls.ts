@@ -3,13 +3,15 @@ import type {InputManager} from '../core/InputManager';
 /** Pointer events cover iOS, iPadOS, Android and touch-enabled laptops. */
 export class TouchControls {
   readonly root=document.createElement('div');
-  private driving:boolean|null=null;
-  setDriving(value:boolean):void {
-    if(value===this.driving)return;this.driving=value;
+  private driving:string|null=null;
+  setDriving(value:boolean,passenger=false):void {
+    const mode=`${value}:${passenger}`;if(mode===this.driving)return;this.driving=mode;
     for(const key of ['ControlLeft','KeyG','KeyR','KeyL','KeyX'])this.root.querySelector<HTMLElement>(`[data-key=${key}]`)?.classList.toggle('hidden',!value);
     for(const key of ['KeyJ','KeyV'])this.root.querySelector<HTMLElement>(`[data-key=${key}]`)?.classList.toggle('hidden',value);
     this.root.querySelector('[data-key=Space]')!.textContent=value?'↑ Up':'↑ Jump';
     this.root.querySelector('[data-key=ShiftLeft]')!.textContent=value?'Boost':'Run';
+    for(const key of ['Space','ShiftLeft','ControlLeft','KeyG','KeyR','KeyL','KeyX','KeyE'])this.root.querySelector<HTMLElement>(`[data-key=${key}]`)?.classList.toggle('hidden',passenger||(['ControlLeft','KeyG','KeyR','KeyL','KeyX'].includes(key)&&!value));
+    this.root.querySelector('[data-key=KeyF]')!.textContent=passenger?'Exit':'Car';
   }
   constructor(parent:HTMLElement,input:InputManager,actions:{map:()=>void;pause:()=>void}) {
     this.root.className='touch-controls';

@@ -14,7 +14,7 @@ import { Housing, HOME_FLOOR, type HomeLocation } from '../systems/Housing';
 import { Pedestrians } from '../systems/Pedestrians';
 import { Rooms } from '../systems/Rooms';
 import { RemotePlayers } from '../systems/RemotePlayers';
-import type { PlayerSnapshot } from '../systems/RoomProtocol';
+import { syncedHours, type PlayerSnapshot, type RoomEnvironment } from '../systems/RoomProtocol';
 import { roomPanel } from '../ui/RoomPanel';
 import { Navigation } from '../systems/Navigation';
 import { Discoveries } from '../systems/Discoveries';
@@ -65,6 +65,10 @@ export class Game {
   private readonly loading: LoadingScreen;
   private readonly modal: Modal;
 
+  private riding=false;
+  private roomEnvironment=false;
+  private readonly ridePosition=new THREE.Vector3();
+  private rideYaw=0;
   private physics!: PhysicsWorld;
   private world!: WorldManager;
   private housing!: Housing;
@@ -211,7 +215,15 @@ export class Game {
       this.remotePlayers=new RemotePlayers(this.scene);
       this.rooms=new Rooms(()=>this.networkSnapshot());
       this.rooms.onPlayers=players=>this.remotePlayers.receive(players);
+    this.rooms.onSeats=seats=>this.remotePlayers.setSeats(seats);
+    this.rooms.onRideMessage=message=>this.hud.toast(message,3);
+    this.rooms.onRide=seat=>{
+      if(seat){this.stopDance();this.ridePosition.copy(this.player.renderPos);this.riding=true;this.player.setActive(false);this.cam.snapBehind(this.player.yaw);this.hud.toast('Passenger seat — F to leave once stopped and landed',4);}
+      else if(this.riding){this.riding=false;this.player.setActive(true);const p=this.ridePosition;const spot=this.world.findFreeSpot(p.x+Math.cos(this.rideYaw)*3,p.z-Math.sin(this.rideYaw)*3);this.player.teleport(spot.x,spot.z,this.rideYaw);this.cam.snapBehind(this.rideYaw);this.hud.toast('You left the passenger seat',2);}
+    };
       this.rooms.onJoin=s=>void this.joinRoomAt(s);
+      this.rooms.environment=()=>({hours:this.cycle.hours,dayLengthMinutes:this.cycle.dayLengthMinutes,rain:this.weather.target>0.5});
+      this.rooms.onEnvironment=env=>this.applyRoomEnvironment(env);
       this.rooms.onChange=()=>{if(this.roomBadge)this.roomBadge.textContent=this.rooms.status};
       this.buildUi(manifest);
       if (this.nav) {
@@ -320,7 +332,8 @@ export class Game {
       t('settings'),
       settingsContent(this.settings, {
         getTimeOfDay: () => this.cycle.hours,
-        setTimeOfDay: (h) => this.cycle.setHours(h),
+        setTimeOfDay: (h) => { if (!this.rooms?.followsHost) this.cycle.setHours(h); },
+        environmentLocked: () => !!this.rooms?.followsHost,
         onResetGame: () => this.resetGame(),
       }),
     );
@@ -351,8 +364,11 @@ export class Game {
       this.camera.fov = s.fov;
       this.camera.updateProjectionMatrix();
     }
-    this.cycle.dayLengthMinutes = s.dayLengthMinutes;
-    this.weather.target = s.rain ? 1 : 0;
+    // In a room, joiners keep the host's clock speed and weather until they leave.
+    if (!this.rooms?.followsHost) {
+      this.cycle.dayLengthMinutes = s.dayLengthMinutes;
+      this.weather.target = s.rain ? 1 : 0;
+    }
     this.audio.setVolumes(s.masterVolume, s.sfxVolume, s.ambienceVolume, s.muted);
     this.hud.minimap.rotate = s.minimapRotate;
     if (prev && prev.playerName !== s.playerName) this.player.setName(s.playerName);
@@ -583,9 +599,26 @@ export class Game {
     }
   }
 
+  /** Joiners follow the room host's time of day, day speed and rain; their own settings return when they leave. */
+  private applyRoomEnvironment(env:RoomEnvironment|null):void {
+    if(env){
+      const first=!this.roomEnvironment;this.roomEnvironment=true;
+      this.cycle.setHours(syncedHours(this.cycle.hours,env.hours));
+      this.cycle.dayLengthMinutes=env.dayLengthMinutes;
+      this.weather.target=env.rain?1:0;
+      if(first)this.hud.toast('Time and weather now follow the room host',3);
+      return;
+    }
+    if(!this.roomEnvironment)return;
+    this.roomEnvironment=false;
+    const s=this.settings.get();
+    this.cycle.dayLengthMinutes=s.dayLengthMinutes;
+    this.weather.target=s.rain?1:0;
+  }
+
   private networkSnapshot():PlayerSnapshot {
-    const v=this.vehicles.driving,p=v?v.position:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying}:null};
+    const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
   }
 
   private openRooms():void {
@@ -639,6 +672,7 @@ export class Game {
   }
 
   private async goHome(): Promise<void> {
+    if(this.riding)this.rooms.leaveRide();
     if(this.vehicles.driving)this.exitVehicle(true);
     const p=this.housing.home;
     await this.world.prepareArea(p.x,p.z,1);
@@ -647,6 +681,7 @@ export class Game {
   }
 
   private teleportTo(x: number, z: number): void {
+    if(this.riding)this.rooms.leaveRide();
     if (this.vehicles.driving) this.exitVehicle(true);
     this.loading.show(true);
     void this.world.prepareArea(x, z, 1, (d, total) => this.loading.set(d / Math.max(1, total), `${t('loading')}… ${d}/${total}`)).then(() => {
@@ -661,7 +696,7 @@ export class Game {
 
   private saveGame(notify: boolean): void {
     if (!this.manifest || this.state === 'boot' || this.state === 'menu') return;
-    const p = this.vehicles.driving ? this.vehicles.driving.position : this.player.position;
+    const p = this.riding?this.ridePosition:this.vehicles.driving ? this.vehicles.driving.position : this.player.position;
     const ok = this.saves.save({
       player: { x: p.x, y: Math.max(0,p.y-0.98), z: p.z, yaw: this.player.yaw },
       drivingVehicle: this.vehicles.driving ? this.vehicles.vehicles.indexOf(this.vehicles.driving) : null,
@@ -679,6 +714,7 @@ export class Game {
   // -------------------------------------------------------------------------
 
   private focusPoint(): THREE.Vector3 {
+    if(this.riding)return this.focus.copy(this.ridePosition);
     if (this.vehicles?.driving) return this.focus.copy(this.vehicles.driving.position);
     if (this.player) return this.focus.copy(this.player.renderPos.lengthSq() > 0 ? this.player.renderPos : this.player.position);
     return this.focus.set(0, 0, 0);
@@ -700,7 +736,7 @@ export class Game {
     drive.steer = Math.max(-1, Math.min(1, drive.steer));
     this.vehicles.fixedUpdate(dt, drive);
 
-    if (!driving) {
+    if (!driving&&!this.riding) {
       const fwd = inp.axis('KeyS', 'KeyW') + inp.axis('ArrowDown', 'ArrowUp') - inp.touchMove.y;
       const right = inp.axis('KeyA', 'KeyD') + inp.axis('ArrowLeft', 'ArrowRight') + inp.touchMove.x;
       const yaw = this.cam.yaw;
@@ -729,7 +765,8 @@ export class Game {
       const scale=this.adaptive.sample(dt);if(scale!==null){this.renderer.setPixelRatio(QUALITY_PRESETS[this.settings.get().quality].pixelRatio*scale);this.renderer.resize();}
     }
 
-    if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();this.remotePlayers.update(dt,p.x,p.z);}
+    if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();this.remotePlayers.update(dt,p.x,p.z,this.cycle.compute().night);}
+    if(this.riding&&this.rooms.ride){const pose=this.remotePlayers.ridePose(this.rooms.ride.driverId);if(pose){this.ridePosition.copy(pose.position);this.rideYaw=pose.yaw;}}
     if (this.state === 'boot' && !this.world) return;
     const inp = this.input;
 
@@ -756,16 +793,16 @@ export class Game {
         const m = inp.consumeMouse();
         this.cam.input(m.dx, m.dy, inp.consumeWheel());
         const driving = this.vehicles.driving;
-        const pivot = driving ? this.tmpV.copy(driving.visual.root.position).add(new THREE.Vector3(0, 1.2, 0)) : this.player.renderPos.clone().add(new THREE.Vector3(0, this.cam.isFirstPerson ? this.player.headHeight : this.player.pivotHeight, 0));
+        const pivot = this.riding?this.ridePosition.clone().add(new THREE.Vector3(0,1.2,0)):driving ? this.tmpV.copy(driving.visual.root.position).add(new THREE.Vector3(0, 1.2, 0)) : this.player.renderPos.clone().add(new THREE.Vector3(0, this.cam.isFirstPerson ? this.player.headHeight : this.player.pivotHeight, 0));
         this.cam.update(dt, {
           pivot,
-          heading: driving ? driving.yaw : this.player.yaw,
+          heading: driving ? driving.yaw : this.riding?this.rideYaw:this.player.yaw,
           speed: driving ? Math.abs(driving.physics.forwardSpeed()) : 0,
-          inVehicle: !!driving,
+          inVehicle: !!driving||this.riding,
           ignore: [this.player.collider, ...this.vehicles.colliders, ...(this.traffic?.colliders() ?? [])],
         });
         this.player.setVisible(!this.cam.isFirstPerson || !!driving);
-        if (this.cam.isFirstPerson && !driving) this.player.faceYaw(this.cam.yaw);
+        if (this.cam.isFirstPerson && !driving&&!this.riding) this.player.faceYaw(this.cam.yaw);
       } else {
         inp.consumeMouse();
         inp.consumeWheel();
@@ -823,10 +860,18 @@ export class Game {
   private handleActions(): void {
     const inp = this.input;
     const driving = this.vehicles.driving;
+    if(this.riding){
+      if(inp.wasPressed('KeyF')){const pose=this.rooms.ride&&this.remotePlayers.ridePose(this.rooms.ride.driverId);if(pose&&(pose.state.vehicle?.flying||pose.state.speed>2))this.hud.toast('Ask the driver to stop and land before leaving',3);else this.rooms.leaveRide();}
+      if(inp.wasPressed('KeyC'))this.cam.cycleMode(true);
+      if(inp.wasPressed('Escape'))this.pause();
+      return;
+    }
     if (inp.wasPressed('Space') && !driving) this.jumpQueued = true;
     if (inp.wasPressed('KeyF')) {
       if (driving) this.exitVehicle();
       else {
+        const ride=this.remotePlayers.nearestRide(this.player.position);
+        if(ride){this.rooms.requestRide(ride.id);return;}
         const v = this.vehicles.nearest(this.player.position);
         if (v) this.enterVehicle(v);
         else if (this.traffic) {
@@ -1070,13 +1115,16 @@ export class Game {
   private updateHud(dt: number, day: number): void {
     const s = this.settings.get();
     const driving = this.vehicles.driving;
-    this.touchControls.setDriving(!!driving);
+    this.touchControls.setDriving(!!driving||this.riding,this.riding);
     const p = this.focusPoint();
     const camDir = this.camera.getWorldDirection(this.tmpV);
     const camHeading = headingFromDirection(camDir.x, camDir.z);
 
     let prompt: string | null = null;
-    if (!driving) {
+    const ride=this.remotePlayers.nearestRide(this.player.position);
+    if(this.riding)prompt='Passenger — F to leave when stopped and landed';
+    else if(ride&&!driving)prompt=`F — Ride with ${ride.name}`;
+    else if (!driving) {
       if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
       else if(this.pedestrians.nearby(p.x,p.z)) prompt='E — '+this.pedestrians.nearby(p.x,p.z);
       else if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');

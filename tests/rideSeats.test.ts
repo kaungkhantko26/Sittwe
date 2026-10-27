@@ -1,0 +1,13 @@
+import {describe,it,expect} from 'vitest';
+import {RideSeats,validRideSeats,type RoomPlayer} from '../src/systems/RideSeats';
+import {validSnapshot,type PlayerSnapshot} from '../src/systems/RoomProtocol';
+const pedestrian:PlayerSnapshot={seq:1,name:'Friend',character:'boy',x:1,y:.1,z:1,yaw:0,speed:0,dancing:false,vehicle:null};
+const driver:PlayerSnapshot={...pedestrian,name:'Driver',vehicle:{id:3,x:0,y:.1,z:0,yaw:0,flying:false,color:0xb52b2b,headlights:true,braking:true,qx:0,qy:0,qz:0,qw:1}};
+const players:RoomPlayer[]=[{id:'driver',state:driver},...['a','b','c','d'].map(id=>({id,state:{...pedestrian}}))];
+describe('shared car seats',()=>{
+ it('assigns three distinct seats and rejects a fourth passenger',()=>{const rides=new RideSeats();for(const id of ['a','b','c'])expect(rides.request(id,'driver',players)).toBeNull();expect([...rides.seats.values()].map(s=>s.seat)).toEqual([1,2,3]);expect(rides.request('d','driver',players)).toContain('full');});
+ it('rejects boarding at a distance, at speed, in flight, or while already driving',()=>{for(const state of [{...driver,x:99},{...driver,speed:5},{...driver,vehicle:{...driver.vehicle!,flying:true}}]){const rides=new RideSeats();expect(rides.request('a','driver',[{id:'driver',state},players[1]!])).not.toBeNull();}expect(new RideSeats().request('driver','driver',players)).not.toBeNull();});
+ it('keeps passengers during flight but clears them when the driver exits, switches cars or disconnects',()=>{for(const next of [null,{...driver,vehicle:null},{...driver,vehicle:{...driver.vehicle!,id:4}}]){const rides=new RideSeats();rides.request('a','driver',players);rides.reconcile([{id:'driver',state:{...driver,vehicle:{...driver.vehicle!,flying:true}}},players[1]!]);expect(rides.seats.size).toBe(1);rides.reconcile(next?[{id:'driver',state:next},players[1]!]:[players[1]!]);expect(rides.seats.size).toBe(0);}});
+ it('reuses a vacated seat and rejects forged or duplicate seat assignments',()=>{const rides=new RideSeats();rides.request('a','driver',players);rides.request('b','driver',players);rides.seats.delete('a');rides.request('c','driver',players);expect(rides.seats.get('c')?.seat).toBe(1);const seats=[...rides.seats.values()];expect(validRideSeats(seats)).toBe(true);expect(validRideSeats([...seats,seats[0]])).toBe(false);expect(validRideSeats([{...seats[0],seat:9}])).toBe(false);});
+ it('preserves actual car paint, lights and orientation and rejects malformed appearance',()=>{expect(validSnapshot(driver)).toBe(true);for(const patch of [{color:-1},{color:0x1000000},{color:'red'},{headlights:'yes'},{qx:NaN},{qw:undefined}])expect(validSnapshot({...driver,vehicle:{...driver.vehicle,...patch}})).toBe(false);expect(JSON.parse(JSON.stringify(driver)).vehicle.color).toBe(0xb52b2b);});
+});

@@ -1,3 +1,4 @@
+import type {RideSeat} from './RideSeats';
 import * as THREE from 'three';
 import {MotionTrack} from './MotionTrack';
 import {createCharacter,disposeCharacter} from '../player/CharacterModels';
@@ -5,10 +6,26 @@ import {PlayerAnimations} from '../player/PlayerAnimations';
 import type {PlayerRig} from '../player/PlayerModel';
 import {createVehicleModel,disposeVehicleModel,type VehicleVisual} from '../vehicles/VehicleModel';
 import type {PlayerSnapshot} from './RoomProtocol';
-interface Remote {rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;state:PlayerSnapshot;seq:number;track:MotionTrack}
+import {createHeadlightBeams,type HeadlightBeams} from '../vehicles/HeadlightBeams';
+/** Real spotlights shared by the nearest remote cars with headlights on (fixed count: no shader recompiles). */
+const REMOTE_LIGHTS=3;
+interface Remote {rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;beams?:HeadlightBeams;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
 export class RemotePlayers {
  private players=new Map<string,Remote>();
- constructor(private readonly scene:THREE.Scene){}
+ private seats:RideSeat[]=[];
+ setSeats(seats:RideSeat[]):void{this.seats=seats}
+ ridePose(driverId:string):{position:THREE.Vector3;yaw:number;state:PlayerSnapshot}|null {
+  const p=this.players.get(driverId);if(!p?.state.vehicle)return null;
+  return {position:p.car?.root.position??p.rig.root.position,yaw:p.rig.root.rotation.y,state:p.state};
+ }
+ nearestRide(position:THREE.Vector3):{id:string;name:string}|null {
+  for(const [id,p] of this.players){const v=p.state.vehicle;if(v&&!v.flying&&p.state.speed<=2&&Math.abs(position.y-v.y)<2.5&&Math.hypot(position.x-v.x,position.z-v.z)<5&&this.seats.filter(s=>s.driverId===id).length<3)return {id,name:p.state.name};}return null;
+ }
+ private readonly lights:THREE.SpotLight[]=[];
+ private readonly tmp=new THREE.Vector3();
+ constructor(private readonly scene:THREE.Scene){
+  for(let i=0;i<REMOTE_LIGHTS;i++){const l=new THREE.SpotLight(0xfff0d0,0,50,.6,.55,1.3);scene.add(l,l.target);this.lights.push(l);}
+ }
  receive(list:Array<{id:string;state:PlayerSnapshot}>):void {
   const keep=new Set(list.map(p=>p.id));
   for(const [id,p] of this.players)if(!keep.has(id)){this.remove(p);this.players.delete(id)}
@@ -20,17 +37,24 @@ export class RemotePlayers {
    p.state=state;p.seq=state.seq;p.track.push(state,performance.now()/1000);
   }
  }
- update(dt:number,px:number,pz:number):void {
+ /** night: 0 by day → 1 at night; headlight beams fade with it. */
+ update(dt:number,px:number,pz:number,night=1):void {
   const now=performance.now()/1000;
+  const lit:Array<{car:VehicleVisual;d:number}>=[];
   for(const p of this.players.values()){
    const s=p.state,root=p.rig.root;
    root.visible=Math.hypot(s.x-px,s.z-pz)<220;
    const pose=p.track.sample(now);if(pose){root.position.set(pose.x,pose.y,pose.z);root.rotation.y=pose.yaw;}
    p.rig.body.visible=!s.vehicle;p.rig.nameTag.visible=root.visible;
    if(s.vehicle){
-    if(!p.car){p.car=createVehicleModel(0xf2f3f4,true);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
+    if(p.car&&p.color!==(s.vehicle.color??0xf2f3f4)){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.car=null;}
+    if(!p.car){p.color=s.vehicle.color??0xf2f3f4;p.car=createVehicleModel(p.color,true);p.beams=createHeadlightBeams(p.car);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
     const v=s.vehicle;p.car.root.visible=root.visible;
-    p.car.root.position.copy(root.position);p.car.root.rotation.y=root.rotation.y;
+    p.car.root.position.copy(root.position);if(v.qw===undefined)p.car.root.rotation.y=root.rotation.y;
+    if(v.qw!==undefined)p.car.root.quaternion.slerp(new THREE.Quaternion(v.qx!,v.qy!,v.qz!,v.qw).normalize(),1-Math.exp(-16*dt));
+    p.car.headMat.emissiveIntensity=v.headlights?2.5:0;p.beams?.set(!!v.headlights&&root.visible,Math.max(.12,night),v.flying);
+    if(v.headlights&&root.visible&&night>.05)lit.push({car:p.car,d:Math.hypot(s.x-px,s.z-pz)});
+    p.car.brakeMat.emissiveIntensity=v.braking?2.6:v.headlights?.8:.15;
     for(const thrust of p.car.thrusts)thrust.visible=v.flying;
     for(const rotor of p.car.rotors)rotor.rotation.y+=dt*(v.flying?75:12);
    }else {
@@ -39,7 +63,20 @@ export class RemotePlayers {
     p.anim.update(dt,s.speed,true,0);
    }
   }
+  // Real spotlights for the nearest lit cars, so their beams light the road and buildings.
+  lit.sort((a,b)=>a.d-b.d);
+  this.lights.forEach((l,i)=>{
+   const c=lit[i];if(!c||c.d>140){l.intensity=0;return;}
+   c.car.root.updateMatrixWorld();
+   l.position.copy(this.tmp.set(0,.7,-2.3).applyMatrix4(c.car.root.matrixWorld));
+   l.target.position.copy(this.tmp.set(0,-1.2,-16).applyMatrix4(c.car.root.matrixWorld));l.target.updateMatrixWorld();
+   l.intensity=70*Math.min(1,night*1.5);
+  });
+  for(const seat of this.seats){const p=this.players.get(seat.playerId),driver=this.players.get(seat.driverId);if(!p||!driver?.car)continue;
+   p.rig.body.visible=false;p.rig.root.position.copy(driver.car.root.position).add(new THREE.Vector3(seat.seat===1?.55:-.55,.15,seat.seat===1?-.3:.6).applyQuaternion(driver.car.root.quaternion));
+   if(p.car)p.car.root.visible=false;
+  }
  }
- private remove(p:Remote):void {p.rig.root.removeFromParent();disposeCharacter(p.rig);if(p.car){p.car.root.removeFromParent();disposeVehicleModel(p.car)}}
+ private remove(p:Remote):void {p.rig.root.removeFromParent();disposeCharacter(p.rig);if(p.car){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.beams=undefined;}}
  clear():void {for(const p of this.players.values())this.remove(p);this.players.clear()}
 }
