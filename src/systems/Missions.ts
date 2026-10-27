@@ -65,7 +65,7 @@ export const ITEMS: Record<ItemId, { icon: string; name: Text }> = {
   beer: { icon: '🍺', name: { en: 'Myanmar Beer', rki: 'မြန်မာဘီယာ' } },
   seafood: { icon: '🦐', name: { en: 'Seafood platter', rki: 'ပင်လယ်စာ' } },
   coffee: { icon: '☕', name: { en: 'Coffee', rki: 'ကော်ဖီ' } },
-  candles: { icon: '🕯️', name: { en: 'Oil lamps & candles', rki: 'ဆီမီးနှင့် ဖယောင်းတိုင်' } },
+  candles: { icon: '🕯️', name: { en: 'Oil lamps & candles', rki: 'ဆီမီးနန့် ဖယောင်းတိုင်' } },
   lantern: { icon: '🏮', name: { en: 'Paper sky lantern', rki: 'မီးပုံးပျံ' } },
   fruit: { icon: '🍌', name: { en: 'Fruit offering', rki: 'သစ်သီးလက်ဆောင်' } },
   flowers: { icon: '💐', name: { en: 'Flowers', rki: 'ပန်း' } },
@@ -91,77 +91,77 @@ export const MISSIONS: MissionDef[] = [
   {
     id: 'point-beers',
     icon: '🍻',
-    title: T('Sunset beers at Point Beach', 'ပွိုင့်ကမ်းခြေ နေဝင်ချိန် ဘီယာ'),
-    intro: T('Buy beer at Golden Fish Mini Market, meet your friends at Point Beach and drink together. Finish at sunset for a bonus.', 'Golden Fish စတိုးတွင် ဘီယာဝယ်ပြီး ပွိုင့်ကမ်းခြေတွင် သူငယ်ချင်းများနှင့် အတူသောက်ပါ။'),
+    title: T('Sunset beers at Point Beach', 'ပွိုင့်ကမ်းခြေ နီဝင်ချိန်မှာ ဘီယာသောက်ဖို့'),
+    intro: T('Buy beer at Golden Fish Mini Market, meet your friends at Point Beach and drink together. Finish at sunset for a bonus.', 'Golden Fish စတိုးမှာ ဘီယာဝယ်ပြီး ပွိုင့်ကမ်းခြေမှာ အပေါင်းအသင်းတိနန့် အတူသောက်ကတ်မေ။ နီဝင်ချိန်မှာ ပြီးကေ ဆုကြေးအပိုရဖို့။'),
     season: 'any',
     social: true,
     budget: 12000,
     reward: 3000,
     sunsetBonus: 1500,
     steps: [
-      { text: T('Go to Golden Fish Mini Market', 'Golden Fish စတိုးသို့ သွားပါ'), place: PLACES.goldenFish, radius: 20 },
-      { text: T('Buy beer for everyone', 'လူတိုင်းအတွက် ဘီယာဝယ်ပါ'), place: PLACES.goldenFish, radius: 20, action: { verb: T('Buy Myanmar Beer (2,500 Ks each)', 'မြန်မာဘီယာ ဝယ်ရန် (တစ်ဗူး ၂,၅၀၀ ကျပ်)'), cost: 2500, perPlayer: true, gives: { item: 'beer', count: 1 } } },
-      { text: T('Meet everyone at Point Beach', 'ပွိုင့်ကမ်းခြေတွင် အားလုံးဆုံပါ'), place: PLACES.viewPoint, radius: 60, together: true },
-      { text: T('Cheers! Everyone drinks', 'ချီးယားစ်! အားလုံးသောက်ပါ'), place: PLACES.viewPoint, radius: 60, together: true, action: { verb: T('Drink your beer — cheers!', 'ဘီယာသောက်ရန် — ချီးယားစ်!'), each: true, uses: { item: 'beer', count: 1 }, fx: 'cheers' } },
+      { text: T('Go to Golden Fish Mini Market', 'Golden Fish စတိုးကို လားပါ'), place: PLACES.goldenFish, radius: 20 },
+      { text: T('Buy beer for everyone', 'အဖွဲ့သားတိအားလုံးအတွက် ဘီယာဝယ်ပါ'), place: PLACES.goldenFish, radius: 20, action: { verb: T('Buy Myanmar Beer (2,500 Ks each)', 'မြန်မာဘီယာ ဝယ်ဖို့ (တဗူး ၂,၅၀၀ ကျပ်)'), cost: 2500, perPlayer: true, gives: { item: 'beer', count: 1 } } },
+      { text: T('Meet everyone at Point Beach', 'ပွိုင့်ကမ်းခြေမှာ အားလုံးဆုံကတ်ပါ'), place: PLACES.viewPoint, radius: 60, together: true },
+      { text: T('Cheers! Everyone drinks', 'ချီးယားစ်! အားလုံး သောက်ကတ်မေ'), place: PLACES.viewPoint, radius: 60, together: true, action: { verb: T('Drink your beer — cheers!', 'ဘီယာသောက်ဖို့ — ချီးယားစ်!'), each: true, uses: { item: 'beer', count: 1 }, fx: 'cheers' } },
     ],
   },
   {
     id: 'bay-seafood',
     icon: '🦐',
-    title: T('Seafood dinner at The Bay', 'The Bay တွင် ပင်လယ်စာညစာ'),
-    intro: T('Ride together to The Bay near Sittwe Point and share a seafood dinner.', 'ပွိုင့်အနီး The Bay သို့ အတူသွားပြီး ပင်လယ်စာ စားကြပါ။'),
+    title: T('Seafood dinner at The Bay', 'The Bay မှာ ပင်လယ်စာညစာ'),
+    intro: T('Ride together to The Bay near Sittwe Point and share a seafood dinner.', 'ပွိုင့်နားက The Bay ကို အတူလားပြီး ပင်လယ်စာ စားကတ်မေ။'),
     season: 'any',
     social: true,
     budget: 20000,
     reward: 2500,
     steps: [
-      { text: T('Everyone meets at The Bay', 'The Bay တွင် အားလုံးဆုံပါ'), place: PLACES.theBay, radius: 30, together: true },
-      { text: T('Order the seafood platter', 'ပင်လယ်စာ မှာပါ'), place: PLACES.theBay, radius: 30, together: true, action: { verb: T('Order seafood (15,000 Ks)', 'ပင်လယ်စာ မှာရန် (၁၅,၀၀၀ ကျပ်)'), cost: 15000, gives: { item: 'seafood', count: 1 }, fx: 'feast' } },
-      { text: T('Watch the sea from View Point', 'View Point မှ ပင်လယ်ကို ကြည့်ပါ'), place: PLACES.viewPoint, radius: 60 },
+      { text: T('Everyone meets at The Bay', 'The Bay မှာ အားလုံးဆုံကတ်ပါ'), place: PLACES.theBay, radius: 30, together: true },
+      { text: T('Order the seafood platter', 'ပင်လယ်စာ မှာပါ'), place: PLACES.theBay, radius: 30, together: true, action: { verb: T('Order seafood (15,000 Ks)', 'ပင်လယ်စာ မှာဖို့ (၁၅,၀၀၀ ကျပ်)'), cost: 15000, gives: { item: 'seafood', count: 1 }, fx: 'feast' } },
+      { text: T('Watch the sea from View Point', 'View Point က ပင်လယ်ကို ကြည့်ကတ်မေ'), place: PLACES.viewPoint, radius: 60 },
     ],
   },
   {
     id: 'coffee-run',
     icon: '☕',
-    title: T('Coffee run to the pagoda', 'ဘုရားသို့ ကော်ဖီပို့'),
-    intro: T('Pick up coffee at Cafe de Sittwe and bring it to your friends at Lawkanandar Pagoda before it gets cold.', 'Cafe de Sittwe မှ ကော်ဖီဝယ်ပြီး လောကနန္ဒာဘုရားသို့ ပို့ပါ။'),
+    title: T('Coffee run to the pagoda', 'ဘုရားကို ကော်ဖီပို့ဖို့'),
+    intro: T('Pick up coffee at Cafe de Sittwe and bring it to your friends at Lawkanandar Pagoda before it gets cold.', 'Cafe de Sittwe က ကော်ဖီဝယ်ပြီး မအေးခင် လောကနန္ဒာဘုရားမှာ ဟိရေ အပေါင်းအသင်းတိကို ပို့ပါ။'),
     season: 'any',
     social: false,
     budget: 6000,
     reward: 1500,
     steps: [
-      { text: T('Go to Cafe de Sittwe', 'Cafe de Sittwe သို့ သွားပါ'), place: PLACES.cafeDeSittwe, radius: 25 },
-      { text: T('Buy coffee', 'ကော်ဖီဝယ်ပါ'), place: PLACES.cafeDeSittwe, radius: 25, action: { verb: T('Buy coffee (1,500 Ks each)', 'ကော်ဖီဝယ်ရန် (၁,၅၀၀ ကျပ်)'), cost: 1500, perPlayer: true, gives: { item: 'coffee', count: 1 } } },
-      { text: T('Deliver it to Lawkanandar Pagoda', 'လောကနန္ဒာဘုရားသို့ ပို့ပါ'), place: PLACES.lawkanandar, radius: 60, action: { verb: T('Share the coffee', 'ကော်ဖီ မျှသောက်ရန်'), uses: { item: 'coffee', count: 1 }, perPlayer: true, fx: 'cheers' } },
+      { text: T('Go to Cafe de Sittwe', 'Cafe de Sittwe ကို လားပါ'), place: PLACES.cafeDeSittwe, radius: 25 },
+      { text: T('Buy coffee', 'ကော်ဖီဝယ်ပါ'), place: PLACES.cafeDeSittwe, radius: 25, action: { verb: T('Buy coffee (1,500 Ks each)', 'ကော်ဖီဝယ်ဖို့ (တခွက် ၁,၅၀၀ ကျပ်)'), cost: 1500, perPlayer: true, gives: { item: 'coffee', count: 1 } } },
+      { text: T('Deliver it to Lawkanandar Pagoda', 'လောကနန္ဒာဘုရားကို ပို့ပါ'), place: PLACES.lawkanandar, radius: 60, action: { verb: T('Share the coffee', 'ကော်ဖီ မျှသောက်ဖို့'), uses: { item: 'coffee', count: 1 }, perPlayer: true, fx: 'cheers' } },
     ],
   },
   {
     id: 'race-point',
     icon: '🏁',
-    title: T('Race: U Ottama statue to the Point', 'ပြိုင်ပွဲ: ဦးဥတ္တမရုပ်တုမှ ပွိုင့်သို့'),
-    intro: T('Line up at the U Ottama statue, then race to View Point. Cars, flying and boats all allowed. First one there wins.', 'ဦးဥတ္တမရုပ်တုတွင် စုပြီး View Point သို့ ပြိုင်ပါ။ အရင်ရောက်သူ နိုင်သည်။'),
+    title: T('Race: U Ottama statue to the Point', 'ပြိုင်ပွဲ: ဦးဥတ္တမရုပ်တုက ပွိုင့်အထိ'),
+    intro: T('Line up at the U Ottama statue, then race to View Point. Cars, flying and boats all allowed. First one there wins.', 'ဦးဥတ္တမရုပ်တုမှာ စုကတ်ပြီး View Point အထိ ပြိုင်ကတ်မေ။ ကား၊ လီယာဉ်နန့် လှေ အကုန်သုံးလို့ရရေ။ အယင်ရောက်ရေလူ နိုင်ဖို့။'),
     season: 'any',
     social: true,
     budget: 0,
     reward: 2000,
     steps: [
-      { text: T('Everyone lines up at the U Ottama statue', 'ဦးဥတ္တမရုပ်တုတွင် အားလုံးစုပါ'), place: PLACES.uOttama, radius: 35, together: true },
-      { text: T('Race to View Point!', 'View Point သို့ ပြိုင်ပါ!'), place: PLACES.viewPoint, radius: 40, race: true },
+      { text: T('Everyone lines up at the U Ottama statue', 'ဦးဥတ္တမရုပ်တုမှာ အားလုံးစုကတ်ပါ'), place: PLACES.uOttama, radius: 35, together: true },
+      { text: T('Race to View Point!', 'View Point အထိ ပြိုင်ကတ်မေ!'), place: PLACES.viewPoint, radius: 40, race: true },
     ],
   },
   {
     id: 'pagoda-pair',
     icon: '🛕',
-    title: T('Two pagodas walk', 'ဘုရားနှစ်ဆူ ဖူးမြော်ခြင်း'),
-    intro: T('Visit Lawkanandar Pagoda together, then cross to the mirror hall of Satkyar Muni Pagoda.', 'လောကနန္ဒာဘုရားနှင့် သကျမုနိဘုရားကို အတူဖူးပါ။'),
+    title: T('Two pagodas walk', 'ဘုရားနှစ်ဆူ လားဖူးဖို့'),
+    intro: T('Visit Lawkanandar Pagoda together, then cross to the mirror hall of Satkyar Muni Pagoda.', 'လောကနန္ဒာဘုရားကို အတူဖူးပြီး သကျမုနိဘုရားက မှန်ကျောင်းဆောင်ကို လားကတ်မေ။'),
     season: 'any',
     social: true,
     budget: 3000,
     reward: 1500,
     steps: [
-      { text: T('Buy flowers at May Yu Market', 'မေယုဈေးတွင် ပန်းဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy flowers (1,000 Ks)', 'ပန်းဝယ်ရန် (၁,၀၀၀ ကျပ်)'), cost: 1000, gives: { item: 'flowers', count: 1 } } },
-      { text: T('Offer flowers at Lawkanandar Pagoda together', 'လောကနန္ဒာဘုရားတွင် ပန်းကပ်ပါ'), place: PLACES.lawkanandar, radius: 60, together: true, action: { verb: T('Offer flowers', 'ပန်းကပ်လှူရန်'), uses: { item: 'flowers', count: 1 } } },
-      { text: T('Walk to Satkyar Muni Pagoda', 'သကျမုနိဘုရားသို့ လျှောက်ပါ'), place: PLACES.satkyarMuni, radius: 25, together: true },
+      { text: T('Buy flowers at May Yu Market', 'မေယုဈေးမှာ ပန်းဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy flowers (1,000 Ks)', 'ပန်းဝယ်ဖို့ (၁,၀၀၀ ကျပ်)'), cost: 1000, gives: { item: 'flowers', count: 1 } } },
+      { text: T('Offer flowers at Lawkanandar Pagoda together', 'လောကနန္ဒာဘုရားမှာ အတူပန်းကပ်ကတ်ပါ'), place: PLACES.lawkanandar, radius: 60, together: true, action: { verb: T('Offer flowers', 'ပန်းကပ်လှူဖို့'), uses: { item: 'flowers', count: 1 } } },
+      { text: T('Walk to Satkyar Muni Pagoda', 'သကျမုနိဘုရားကို လမ်းလျှောက်လားပါ'), place: PLACES.satkyarMuni, radius: 25, together: true },
     ],
   },
   // ---- Thadingyut, the Festival of Lights ----
@@ -169,45 +169,45 @@ export const MISSIONS: MissionDef[] = [
     id: 'thadingyut-lamps',
     icon: '🪔',
     title: T('Thadingyut: light the pagoda', 'သီတင်းကျွတ်: ဘုရားမီးထွန်း'),
-    intro: T('Buy oil lamps and candles at May Yu Market and light them together at Lawkanandar Pagoda after dark.', 'မေယုဈေးတွင် ဆီမီးနှင့် ဖယောင်းတိုင်ဝယ်ပြီး ညအချိန် လောကနန္ဒာဘုရားတွင် အတူမီးထွန်းပါ။'),
+    intro: T('Buy oil lamps and candles at May Yu Market and light them together at Lawkanandar Pagoda after dark.', 'မေယုဈေးမှာ ဆီမီးနန့် ဖယောင်းတိုင်ဝယ်ပြီး မှောင်လာကေ လောကနန္ဒာဘုရားမှာ အတူမီးထွန်းကတ်မေ။'),
     season: 'thadingyut',
     social: true,
     budget: 8000,
     reward: 3500,
     steps: [
-      { text: T('Buy lamps and candles at May Yu Market', 'မေယုဈေးတွင် ဆီမီးဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy oil lamps & candles (2,000 Ks each)', 'ဆီမီး ဝယ်ရန် (၂,၀၀၀ ကျပ်)'), cost: 2000, perPlayer: true, gives: { item: 'candles', count: 1 } } },
-      { text: T('Meet at Lawkanandar Pagoda after dark', 'ညအချိန် လောကနန္ဒာဘုရားတွင် ဆုံပါ'), place: PLACES.lawkanandar, radius: 60, together: true, night: true },
-      { text: T('Everyone lights their lamps', 'အားလုံး မီးထွန်းပါ'), place: PLACES.lawkanandar, radius: 60, together: true, night: true, action: { verb: T('Light the oil lamps', 'ဆီမီးထွန်းရန်'), each: true, uses: { item: 'candles', count: 1 }, fx: 'lamps' } },
+      { text: T('Buy lamps and candles at May Yu Market', 'မေယုဈေးမှာ ဆီမီးဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy oil lamps & candles (2,000 Ks each)', 'ဆီမီး ဝယ်ဖို့ (တယောက် ၂,၀၀၀ ကျပ်)'), cost: 2000, perPlayer: true, gives: { item: 'candles', count: 1 } } },
+      { text: T('Meet at Lawkanandar Pagoda after dark', 'မှောင်လာကေ လောကနန္ဒာဘုရားမှာ ဆုံကတ်ပါ'), place: PLACES.lawkanandar, radius: 60, together: true, night: true },
+      { text: T('Everyone lights their lamps', 'အားလုံး မီးထွန်းကတ်မေ'), place: PLACES.lawkanandar, radius: 60, together: true, night: true, action: { verb: T('Light the oil lamps', 'ဆီမီးထွန်းဖို့'), each: true, uses: { item: 'candles', count: 1 }, fx: 'lamps' } },
     ],
   },
   {
     id: 'thadingyut-lanterns',
     icon: '🏮',
-    title: T('Thadingyut: sky lanterns at Point Beach', 'သီတင်းကျွတ်: ပွိုင့်တွင် မီးပုံးပျံလွှတ်'),
-    intro: T('Buy paper lanterns at May Yu Market, then release them together over the sea at Point Beach at night.', 'မေယုဈေးတွင် မီးပုံးဝယ်ပြီး ညအချိန် ပွိုင့်ကမ်းခြေတွင် အတူလွှတ်ပါ။'),
+    title: T('Thadingyut: sky lanterns at Point Beach', 'သီတင်းကျွတ်: ပွိုင့်မှာ မီးပုံးပျံလွှတ်ဖို့'),
+    intro: T('Buy paper lanterns at May Yu Market, then release them together over the sea at Point Beach at night.', 'မေယုဈေးမှာ မီးပုံးပျံဝယ်ပြီး ညအချိန် ပွိုင့်ကမ်းခြေမှာ အတူလွှတ်ကတ်မေ။'),
     season: 'thadingyut',
     social: true,
     budget: 10000,
     reward: 4000,
     steps: [
-      { text: T('Buy sky lanterns at May Yu Market', 'မေယုဈေးတွင် မီးပုံးဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy sky lanterns (3,000 Ks each)', 'မီးပုံးပျံဝယ်ရန် (၃,၀၀၀ ကျပ်)'), cost: 3000, perPlayer: true, gives: { item: 'lantern', count: 1 } } },
-      { text: T('Gather at Point Beach after dark', 'ညအချိန် ပွိုင့်ကမ်းခြေတွင် စုပါ'), place: PLACES.viewPoint, radius: 60, together: true, night: true },
-      { text: T('Release your lanterns', 'မီးပုံးပျံ လွှတ်ပါ'), place: PLACES.viewPoint, radius: 60, together: true, night: true, action: { verb: T('Release the sky lantern', 'မီးပုံးပျံလွှတ်ရန်'), each: true, uses: { item: 'lantern', count: 1 }, fx: 'lanterns' } },
-      { text: T('Watch the fireworks over the sea', 'ပင်လယ်ပေါ် မီးပန်းကြည့်ပါ'), place: PLACES.viewPoint, radius: 60, together: true, night: true, action: { verb: T('Start the fireworks', 'မီးပန်းဖောက်ရန်'), fx: 'fireworks' } },
+      { text: T('Buy sky lanterns at May Yu Market', 'မေယုဈေးမှာ မီးပုံးပျံဝယ်ပါ'), place: PLACES.mayYu, radius: 30, action: { verb: T('Buy sky lanterns (3,000 Ks each)', 'မီးပုံးပျံဝယ်ဖို့ (တလုံး ၃,၀၀၀ ကျပ်)'), cost: 3000, perPlayer: true, gives: { item: 'lantern', count: 1 } } },
+      { text: T('Gather at Point Beach after dark', 'မှောင်လာကေ ပွိုင့်ကမ်းခြေမှာ စုကတ်ပါ'), place: PLACES.viewPoint, radius: 60, together: true, night: true },
+      { text: T('Release your lanterns', 'မီးပုံးပျံ လွှတ်ကတ်မေ'), place: PLACES.viewPoint, radius: 60, together: true, night: true, action: { verb: T('Release the sky lantern', 'မီးပုံးပျံလွှတ်ဖို့'), each: true, uses: { item: 'lantern', count: 1 }, fx: 'lanterns' } },
+      { text: T('Watch the fireworks over the sea', 'ပင်လယ်ပေါ်က မီးပန်းတိကို ကြည့်ကတ်မေ'), place: PLACES.viewPoint, radius: 60, together: true, night: true, action: { verb: T('Start the fireworks', 'မီးပန်းဖောက်ဖို့'), fx: 'fireworks' } },
     ],
   },
   {
     id: 'thadingyut-gadaw',
     icon: '🙏',
     title: T('Thadingyut: pay respects to elders', 'သီတင်းကျွတ်: သက်ကြီးဝါကြီး ကန်တော့'),
-    intro: T('Thadingyut is the time to thank parents, teachers and elders (gadaw). Buy a fruit offering and bring it home.', 'သီတင်းကျွတ်တွင် မိဘ ဆရာသမားနှင့် သက်ကြီးဝါကြီးများကို ကန်တော့ကြသည်။ သစ်သီးဝယ်ပြီး အိမ်သို့ယူသွားပါ။'),
+    intro: T('Thadingyut is the time to thank parents, teachers and elders (gadaw). Buy a fruit offering and bring it home.', 'သီတင်းကျွတ်မှာ မိဘ၊ ဆရာသမားနန့် သက်ကြီးဝါကြီးတိကို ကျေးဇူးတင် ကန်တော့ကတ်ရေ။ သစ်သီးဝယ်ပြီး အိမ်ကို ယူလားပါ။'),
     season: 'thadingyut',
     social: false,
     budget: 5000,
     reward: 2500,
     steps: [
-      { text: T('Buy a fruit offering at Golden Fish Mini Market', 'Golden Fish စတိုးတွင် သစ်သီးဝယ်ပါ'), place: PLACES.goldenFish, radius: 20, action: { verb: T('Buy fruit offering (3,000 Ks)', 'သစ်သီးဝယ်ရန် (၃,၀၀၀ ကျပ်)'), cost: 3000, gives: { item: 'fruit', count: 1 } } },
-      { text: T('Bring it home and pay respects', 'အိမ်သို့ယူသွားပြီး ကန်တော့ပါ'), place: PLACES.home, radius: 14, action: { verb: T('Gadaw — pay respects to your elders', 'ကန်တော့ရန်'), uses: { item: 'fruit', count: 1 }, fx: 'gadaw' } },
+      { text: T('Buy a fruit offering at Golden Fish Mini Market', 'Golden Fish စတိုးမှာ သစ်သီးဝယ်ပါ'), place: PLACES.goldenFish, radius: 20, action: { verb: T('Buy fruit offering (3,000 Ks)', 'သစ်သီးဝယ်ဖို့ (၃,၀၀၀ ကျပ်)'), cost: 3000, gives: { item: 'fruit', count: 1 } } },
+      { text: T('Bring it home and pay respects', 'အိမ်ကို ယူလားပြီး ကန်တော့ပါ'), place: PLACES.home, radius: 14, action: { verb: T('Gadaw — pay respects to your elders', 'ကန်တော့ဖို့'), uses: { item: 'fruit', count: 1 }, fx: 'gadaw' } },
     ],
   },
 ];
@@ -263,10 +263,10 @@ function near(p: PlayerPos, at: { x: number; z: number }, r: number): boolean {
 
 /** Why a step cannot progress right now (shown in the tracker), or null if it can. */
 export function blocker(step: MissionStep, ctx: MissionContext, at: { x: number; z: number }): Text | null {
-  if (step.night && !isNight(ctx.hours)) return T('Wait for dark (after 18:00)', 'မှောင်သည်အထိ စောင့်ပါ (၁၈:၀၀ နောက်)');
+  if (step.night && !isNight(ctx.hours)) return T('Wait for dark (after 18:00)', 'မှောင်လာရေအထိ စောင့်ပါ (၁၈:၀၀ နောက်)');
   if (step.together) {
     const away = ctx.players.filter((p) => !near(p, at, step.radius));
-    if (away.length) return T(`Waiting for ${away.map((p) => p.name).join(', ')}`, `${away.map((p) => p.name).join('၊ ')} ကို စောင့်နေသည်`);
+    if (away.length) return T(`Waiting for ${away.map((p) => p.name).join(', ')}`, `${away.map((p) => p.name).join('၊ ')} ကို စောင့်နီရေ`);
   }
   return null;
 }
@@ -286,8 +286,8 @@ export class MissionEngine {
 
   start(id: string, festival: boolean): Text | null {
     const def = missionById(id);
-    if (!def) return T('Unknown mission', 'မသိသော မစ်ရှင်');
-    if (def.season === 'thadingyut' && !festival) return T('This mission is only during Thadingyut', 'ဤမစ်ရှင်သည် သီတင်းကျွတ်အတွင်းသာ');
+    if (!def) return T('Unknown mission', 'မသိရေ မစ်ရှင်');
+    if (def.season === 'thadingyut' && !festival) return T('This mission is only during Thadingyut', 'ဒေမစ်ရှင်ကို သီတင်းကျွတ်အချိန်မှာရာ ကစားလို့ရရေ');
     this.state = { ...emptyState(), id, budget: def.budget, n: this.state.n + 1, event: { text: def.title } };
     return null;
   }
@@ -311,8 +311,8 @@ export class MissionEngine {
     const ks = reward.toLocaleString('en-US');
     this.state.done = { reward, at: Date.now(), ...(winner ? { winner: winner.id, winnerName: winner.name } : {}) };
     const head = winner ? `🏁 ${winner.name} wins the race! ` : '';
-    const headR = winner ? `🏁 ${winner.name} ပြိုင်ပွဲနိုင်သည်! ` : '';
-    this.emit(T(`${head}Mission complete! +${ks} Ks${bonus ? ' (sunset bonus)' : ''}${winner ? ` · winner +${RACE_WIN_BONUS.toLocaleString('en-US')} Ks` : ''}`, `${headR}မစ်ရှင်ပြီးပါပြီ! +${ks} ကျပ်`), winner ? 'fireworks' : undefined, winner ? ctx.place(def.steps[def.steps.length - 1]!.place) ?? undefined : undefined);
+    const headR = winner ? `🏁 ${winner.name} ပြိုင်ပွဲနိုင်လားယာ! ` : '';
+    this.emit(T(`${head}Mission complete! +${ks} Ks${bonus ? ' (sunset bonus)' : ''}${winner ? ` · winner +${RACE_WIN_BONUS.toLocaleString('en-US')} Ks` : ''}`, `${headR}မစ်ရှင်ပြီးလားယာ! +${ks} ကျပ်`), winner ? 'fireworks' : undefined, winner ? ctx.place(def.steps[def.steps.length - 1]!.place) ?? undefined : undefined);
   }
 
   /** Checks arrival steps; call a few times per second. */
@@ -354,14 +354,14 @@ export class MissionEngine {
     if (!at || !p || !near(p, at, step.radius)) return null;
     const why = blocker(step, ctx, at);
     if (why) return why;
-    if (a.each && this.state.acted.includes(playerId)) return T('You already did this — wait for the others', 'ပြီးပါပြီ — အခြားသူများကို စောင့်ပါ');
+    if (a.each && this.state.acted.includes(playerId)) return T('You already did this — wait for the others', 'လုပ်ပြီးလားယာ — တခြားလူတိကို စောင့်ပါ');
     const team = Math.max(1, ctx.players.length);
     const times = a.perPlayer && !a.each ? team : 1;
     const cost = (a.cost ?? 0) * times;
-    if (cost > this.state.budget) return T('Not enough money in the team budget', 'ငွေမလုံလောက်ပါ');
+    if (cost > this.state.budget) return T('Not enough money in the team budget', 'အဖွဲ့ပိုက်ဆံ မလောက်ပါ');
     if (a.uses) {
       const need = a.uses.count * times;
-      if ((this.state.items[a.uses.item] ?? 0) < need) return T(`You need ${ITEMS[a.uses.item].name.en}`, `${ITEMS[a.uses.item].name.rki} လိုအပ်သည်`);
+      if ((this.state.items[a.uses.item] ?? 0) < need) return T(`You need ${ITEMS[a.uses.item].name.en}`, `${ITEMS[a.uses.item].name.rki} လိုနီရေ`);
       this.state.items[a.uses.item] = (this.state.items[a.uses.item] ?? 0) - need;
     }
     this.state.budget -= cost;
