@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PLATFORM_Y } from '../geo/pagodaLayout';
+import { kneelPose, resetPose } from '../player/Clothes';
 import { disposeCharacter } from '../player/CharacterModels';
 import { createNpc } from '../player/NpcModels';
 import { NPC_PROFILES } from '../player/NpcProfiles';
@@ -103,7 +104,7 @@ export class PagodaVisitors {
       kneelPose(r, v.age);
       if (v.wait <= 0) {
         v.mode = 'walk';
-        r.body.position.y = 0.92;
+        resetPose(r);
       }
       return;
     }
@@ -146,13 +147,4 @@ export class PagodaVisitors {
   }
 }
 
-/** Kneeling with palms together, head slightly bowed (gentle breathing). */
-export function kneelPose(r: PlayerRig, t: number): void {
-  r.body.position.y = 0.5;
-  r.body.rotation.set(-0.08 + Math.sin(t * 1.3) * 0.015, 0, 0);
-  r.leftLeg.rotation.x = 1.45;
-  r.rightLeg.rotation.x = 1.45;
-  r.leftArm.rotation.set(1.95, 0, 0.42);
-  r.rightArm.rotation.set(1.95, 0, -0.42);
-  r.head.rotation.set(0.22, 0, 0);
-}
+export { kneelPose } from '../player/Clothes';

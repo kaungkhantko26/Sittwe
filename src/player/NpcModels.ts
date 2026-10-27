@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachSkirt } from './Clothes';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {createNameTag,type PlayerRig} from './PlayerModel';
 import {NPC_PROFILES} from './NpcProfiles';
@@ -37,11 +38,13 @@ export function createNpc(role:number,name:string,variant:number):PlayerRig {
   for(const arm of [leftArm,rightArm]){box(.15,.3,.2,shirt,arm,0,-.15,0);box(.12,.24,.15,skin,arm,0,-.42,0);box(.14,.13,.17,skin,arm,0,-.58,-.005)}
   for(const leg of [leftLeg,rightLeg]){box(.18,.7,.2,lower,leg,0,-.35,0);box(.19,.1,.29,0x493a2b,leg,0,-.76,-.045)}
   if(longyi){
+    const first=body.children.length;
     box(.46,.62,.32,lower,body,0,-.29,0);
     if(kind!=='monk')for(let j=0;j<5;j++){
       box(.465,.018,.335,j%2?gold:0xd7b69b,body,0,-.08-j*.12,-.002);
       for(let i=0;i<4;i++){const motif=box(.035,.035,.015,gold,body,-.15+i*.1,-.13-j*.12,-.17);motif.rotation.z=Math.PI/4;}
     }
+    attachSkirt(body,leftLeg,rightLeg,body.children.slice(first));
   }
   if(['resident','performer','woman'].includes(kind)){
     box(.46,.065,.4,0xeee2c5,head,0,.11,0);

@@ -28,7 +28,8 @@ import { MissionVisuals } from '../world/MissionVisuals';
 import { missionById, PLACES } from '../systems/Missions';
 import { Navigation } from '../systems/Navigation';
 import { Discoveries } from '../systems/Discoveries';
-import { kneelPose, PagodaVisitors } from '../systems/PagodaVisitors';
+import { PagodaVisitors } from '../systems/PagodaVisitors';
+import { applySitPose, resetPose, type SitPose } from '../player/Clothes';
 import { initGoldEnvironment, updateGoldEnvironment } from '../world/goldEnvironment';
 import { pagodaLayout, PLATFORM_Y } from '../geo/pagodaLayout';
 import type { PagodaSite } from '../world/landmarks/LawkanandarPagoda';
@@ -116,6 +117,7 @@ export class Game {
   private discoveryTimer = 0;
   /** Seated at a meditation mat (pose held until the player moves). */
   private sitting = false;
+  private sitPose: SitPose = 'kneel';
   /** Cinematic fly-around for "View architectural details". */
   private detailView: { cx: number; cz: number; r: number; h: number; t: number } | null = null;
   private photoRequested = false;
@@ -650,7 +652,7 @@ export class Game {
 
   private networkSnapshot():PlayerSnapshot {
     const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,...(v.kind!=='car'?{kind:v.kind}:{}),id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,...(this.sitting&&!v?{sit:this.sitPose}:{}),vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,...(v.kind!=='car'?{kind:v.kind}:{}),id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
   }
 
   /** Co-op missions at real places, shared in rooms, plus the Thadingyut festival. */
@@ -681,7 +683,7 @@ export class Game {
         const mine = Math.hypot(me.x - x, me.z - z) < 2.5;
         if (kind === 'campfire') this.campfire.boost(900);
         // Your own "sit" or "dance" action: sit on the nearest bench, or start dancing.
-        if (kind === 'sit' && mine && !this.vehicles.driving) { const seat = this.campfire.nearestSeat(me.x, me.z, 12); if (seat) this.sitAt(seat, 0); }
+        if (kind === 'sit' && mine && !this.vehicles.driving) { const seat = this.campfire.nearestSeat(me.x, me.z, 12); if (seat) this.sitAt(seat, 0, 'bench'); }
         if (kind === 'dance' && mine && !this.vehicles.driving) { this.standUp(); this.player.anim.startDance(); this.audio.startDanceMusic(); }
       },
       target: (at) => this.setDestination(at),
@@ -980,7 +982,7 @@ export class Game {
       this.festivalFx.update(dt, { night: this.cycle.compute().night, festival: this.missions.festival, px: focus.x, pz: focus.z, sites: this.world.pagodaSites(), camera: this.camera });
       this.trackerTimer -= dt;
       if (this.trackerTimer <= 0) { this.trackerTimer = 0.5; this.missionTracker.refresh(); }
-      if (this.sitting) kneelPose(this.player.rig, performance.now() / 1000);
+      if (this.sitting) applySitPose(this.player.rig, this.sitPose, performance.now() / 1000);
     }
     if (this.state === 'map') {
       const p = this.focusPoint();
@@ -1048,7 +1050,7 @@ export class Game {
       // A mission action used E (buy, drink, light lamps…).
     } else if (inp.wasPressed('KeyE') && !driving && (this.sitting || this.campfire.nearestSeat(this.player.position.x, this.player.position.z)) && !this.nearPagoda()) {
       const seat = this.campfire.nearestSeat(this.player.position.x, this.player.position.z);
-      if (this.sitting) this.standUp(); else if (seat) this.sitAt(seat, 0);
+      if (this.sitting) this.standUp(); else if (seat) this.sitAt(seat, 0, 'bench');
     } else if (inp.wasPressed('KeyE') && !driving && this.world.nearHomeDoor(this.player.position.x,this.player.position.z)) {
       this.world.toggleHomeDoor();
     } else if (inp.wasPressed('KeyE') && !driving && this.pedestrians.nearby(this.player.position.x,this.player.position.z)) {
@@ -1125,23 +1127,18 @@ export class Game {
     return site.layout.mats.find(([x, z]) => Math.hypot(p.x - x, p.z - z) < 1.3) ?? null;
   }
 
-  private sitAt(mat: [number, number, number], y = PLATFORM_Y): void {
+  private sitAt(mat: [number, number, number], y = PLATFORM_Y, pose: SitPose = 'kneel'): void {
     this.stopDance();
     this.player.teleport(mat[0], mat[1], mat[2], y);
     this.sitting = true;
+    this.sitPose = pose;
     this.hud.toast('Sitting quietly — move or press E to stand', 2.5);
   }
 
   private standUp(): void {
     if (!this.sitting) return;
     this.sitting = false;
-    this.player.rig.body.position.y = 0.92;
-    this.player.rig.body.rotation.set(0, 0, 0);
-    this.player.rig.leftLeg.rotation.set(0, 0, 0);
-    this.player.rig.rightLeg.rotation.set(0, 0, 0);
-    this.player.rig.leftArm.rotation.set(0, 0, 0);
-    this.player.rig.rightArm.rotation.set(0, 0, 0);
-    this.player.rig.head.rotation.set(0, 0, 0);
+    resetPose(this.player.rig);
   }
 
   private openPagodaInfo(site: PagodaSite): void {

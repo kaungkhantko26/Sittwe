@@ -12,9 +12,10 @@ import {createHeadlightBeams,type HeadlightBeams} from '../vehicles/HeadlightBea
 import {BoatLook} from '../vehicles/BoatLook';
 import {createTwoWheelerModel} from '../vehicles/VehicleModel';
 import {seatRider} from '../vehicles/Rider';
+import {applySitPose,resetPose} from '../player/Clothes';
 /** Real spotlights shared by the nearest remote cars with headlights on (fixed count: no shader recompiles). */
 const REMOTE_LIGHTS=3;
-interface Remote {swimBlend?:number;rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;kind?:'car'|'motorbike'|'bicycle';pedal?:number;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
+interface Remote {sat?:boolean;swimBlend?:number;rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;kind?:'car'|'motorbike'|'bicycle';pedal?:number;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
 export class RemotePlayers {
  private players=new Map<string,Remote>();
  private seats:RideSeat[]=[];
@@ -83,6 +84,9 @@ export class RemotePlayers {
     if(pose)root.position.y-=SWIM_SINK*blend;p.rig.nameTag.position.y=2.42-.75*blend;
     if(blend>.5&&p.anim.dancing)p.anim.stopDance();
     p.anim.update(dt,s.speed,true,0,blend);
+    // Sitting or praying friends hold the same pose they see on their screen.
+    if(s.sit&&!s.dancing)applySitPose(p.rig,s.sit,performance.now()/1000);else if(p.sat)resetPose(p.rig);
+    p.sat=!!s.sit&&!s.dancing;
    }
   }
   // Real spotlights for the nearest lit cars, so their beams light the road and buildings.

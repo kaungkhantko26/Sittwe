@@ -15,7 +15,7 @@ export function seatRider(rig: PlayerRig, bike: VehicleVisual, kind: 'motorbike'
   bike.root.updateMatrixWorld();
   rig.root.position.copy(seat).add(SEAT_OFFSET.set(0, -HIP + 0.04, 0)).applyMatrix4(bike.root.matrixWorld);
   rig.root.quaternion.copy(bike.root.quaternion);
-  rig.body.position.y = HIP;
+  rig.body.position.set(0, HIP, 0);
   rig.body.rotation.set(kind === 'motorbike' ? 0.18 : 0.32, 0, 0); // lean forward to the bars
   rig.head.rotation.set(-0.15, 0, 0);
   if (kind === 'bicycle') {
@@ -23,8 +23,9 @@ export function seatRider(rig: PlayerRig, bike: VehicleVisual, kind: 'motorbike'
     rig.leftLeg.rotation.set(1.05 + Math.sin(pedal) * 0.35, 0, 0);
     rig.rightLeg.rotation.set(1.05 + Math.sin(pedal + Math.PI) * 0.35, 0, 0);
   } else {
-    rig.leftLeg.rotation.set(1.25, 0, 0.12);
-    rig.rightLeg.rotation.set(1.25, 0, -0.12);
+    // Feet down on the floorboard, knees apart around the leg shield.
+    rig.leftLeg.rotation.set(1.0, 0, 0.14);
+    rig.rightLeg.rotation.set(1.0, 0, -0.14);
   }
   rig.leftArm.rotation.set(1.2, 0, 0.2);
   rig.rightArm.rotation.set(1.2, 0, -0.2);

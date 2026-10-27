@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachSkirt } from './Clothes';
 import type { PlayerRig } from './PlayerModel';
 import { createNameTag } from './PlayerModel';
 
@@ -488,6 +489,7 @@ export function createRakhineBoy(name: string): PlayerRig {
   const knot = box(0.1, 0.1, 0.06, mat(ly));
   knot.position.set(0, -0.04, -TORSO_D / 2 - 0.05);
   p.body.add(knot);
+  attachSkirt(p.body, p.leftLeg, p.rightLeg, [longyi, knot], [sashHang]);
 
   addFootwear(p.leftLeg, 0xc89a55, 0x4a2f1e, true);
   addFootwear(p.rightLeg, 0xc89a55, 0x4a2f1e, true);
@@ -581,6 +583,7 @@ export function createRakhineGirl(name: string): PlayerRig {
   shBack.position.set(0.04, -0.12, TORSO_D / 2 + 0.12);
   shBack.rotation.x = 0.16;
   p.body.add(shFront, shBack);
+  attachSkirt(p.body, p.leftLeg, p.rightLeg, [skirt], [shBack]);
 
   // Sheer cream sleeves with gold bracelets.
   const sleeve = sleeveTex(CREAM_LIGHT, GOLD, skin, true);

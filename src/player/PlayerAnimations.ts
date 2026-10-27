@@ -176,6 +176,8 @@ export class PlayerAnimations {
     const armAmp = (running ? 1.0 : 0.45) * this.blend;
     const r = this.rig;
     // Airborne pose: knees up, arms raised.
+    r.leftLeg.rotation.z = r.rightLeg.rotation.z = 0; // riding splays the legs
+    r.body.position.z = 0;
     r.leftLeg.rotation.x = s * legAmp * (1 - this.air) + this.air * -0.5;
     r.rightLeg.rotation.x = -s * legAmp * (1 - this.air) + this.air * 0.2;
     r.leftArm.rotation.x = -s * armAmp * (1 - this.air) + this.air * -1.2;
