@@ -83,6 +83,12 @@ export interface ChunkLandmark {
   cs?: 'colonial' | 'burmese';
   /** Pagoda complex footprint (flat x,z ring of the mapped platform/building). */
   pg?: number[];
+  /** Outward direction of the pagoda's main entrance (toward the nearest major road). */
+  pe?: [number, number];
+  /** Mirror-shrine placement (user-supplied landmark): facing yaw and the linking walkway [x0, z0, x1, z1]. */
+  ms?: { yaw: number; link: [number, number, number, number] };
+  /** Source note for landmarks that are not from OpenStreetMap. */
+  src?: string;
 }
 
 export interface ChunkData {

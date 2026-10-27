@@ -324,3 +324,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 .discovery-panel .discovery-note {font-size:11px;margin-top:16px;}
 @media(max-width:850px){.main-menu{grid-template-columns:1fr;gap:20px;place-items:center;padding:24px 18px;display:block;}.main-menu .menu-card{margin:0 auto;max-width:450px;max-height:none;}.discovery-panel{max-width:450px;margin:0 auto;padding:26px 8px;}.discovery-panel h2{font-size:36px;}.discovery-stats{margin:18px 0;}.main-menu .title{font-size:48px;}.main-menu .menu-intro{margin:12px 0;}.main-menu .menu-foot{margin-top:14px;}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
+
+/* Major landmark markers */
+.mm-landmark { color: #f5c24b; font-size: 13px; line-height: 1; text-shadow: 0 0 3px #000, 0 0 6px rgba(0,0,0,0.8); pointer-events: none; }
+.mm-landmark.pagoda { font-size: 16px; }
+.lm-marker.major { width: 18px; height: 18px; border-width: 3px; box-shadow: 0 0 0 3px rgba(245,184,75,0.35); }
+.lm-local { font-size: 18px; color: var(--accent); margin-top: 0; }

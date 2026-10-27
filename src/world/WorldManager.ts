@@ -12,6 +12,7 @@ import { buildHome, disposeHome, type HomeObjects } from './HomeGenerator';
 import { buildBuildings } from './BuildingGenerator';
 import { ChunkManager } from './ChunkManager';
 import { buildLandmarks, disposeLandmarks, type LandmarkObjects } from './LandmarkGenerator';
+import type { PagodaSite } from './landmarks/LawkanandarPagoda';
 import { materials } from './materials';
 import { buildRoads, DRIVABLE } from './RoadGenerator';
 import { PolygonIndex, SegmentIndex } from './SpatialIndex';
@@ -50,6 +51,7 @@ interface BuiltChunk {
   stupas: number[];
   boxes: number[];
   ramps: number[][];
+  sites: PagodaSite[];
   landmarks: LandmarkObjects | null;
   vegetation: THREE.InstancedMesh[];
   signs:THREE.Group;
@@ -180,6 +182,7 @@ export class WorldManager {
       else if (!wantPhysics && c.physics) this.deactivatePhysics(c);
       const detail = d <= this.opts.detailRadius;
       c.detail.visible = detail;
+      for (const site of c.sites) site.update(this.playerX, this.playerZ);
       if (c.buildingsMesh) c.buildingsMesh.castShadow = d <= 1;
       if (c.landmarks) {
         for (const l of c.landmarks.labels) {
@@ -262,6 +265,7 @@ export class WorldManager {
       stupas: [],
       boxes: [],
       ramps: [],
+      sites: [],
       landmarks: null,
       vegetation: [],
       signs:buildStreetSigns(data.roads,(x,z)=>!buildingIndex.hit(x,z,1)&&!this.landmarkReserved(x,z)&&!this.inHomePlot(x,z)&&!this.isBlocked(x,z)),
@@ -328,6 +332,7 @@ export class WorldManager {
     c.stupas = c.landmarks.stupas;
     c.boxes = c.landmarks.boxes;
     c.ramps = c.landmarks.ramps;
+    c.sites = c.landmarks.sites;
   }
 
   private unbuild(key: string): void {
@@ -356,7 +361,7 @@ export class WorldManager {
     }
     const boxBody = this.physics.createStaticBoxes(c.boxes, Groups.building);
     if (boxBody) bodies.push(boxBody);
-    const rampBody = this.physics.createStaticHulls(c.ramps, Groups.building);
+    const rampBody = this.physics.createStaticHulls(c.ramps, Groups.walkway);
     if (rampBody) bodies.push(rampBody);
     c.physics = { building, bodies };
   }
@@ -404,6 +409,13 @@ export class WorldManager {
   private chunkAt(x: number, z: number): BuiltChunk | undefined {
     const s = this.manifest.chunkSize;
     return this.built.get(chunkKey(Math.floor(x / s), Math.floor(z / s)));
+  }
+
+  /** Interactive landmark sites (pagoda complexes) in built chunks. */
+  pagodaSites(): PagodaSite[] {
+    const out: PagodaSite[] = [];
+    for (const c of this.built.values()) out.push(...c.sites);
+    return out;
   }
 
   /** True if (x, z) is inside the sea or a mapped water body. */

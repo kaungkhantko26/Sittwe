@@ -75,6 +75,34 @@ Missing buildings or roads are never replaced with invented ones. Travel, spawn,
 - **Bridges:** every mapped `bridge=yes` road gets red/white kerbs, walkways and railings. Bridges on major roads get steel bowstring arches, modelled on Sittwe's canal bridges such as the Bilu Ma (ဘီလူးမ) bridge on Main Road. Canals under mapped bridges are widened to about 55% of the bridge length (max 22 m) and given stone embankments; this is an estimate.
 - **Landmark buildings:** each named landmark links to the building that contains it, or the nearest one within 15 m. That building is rendered in a matching style: church (bell tower), Buddhist monastery (tiered roof), mosque (dome), market, stadium, hospital (roof cross), civic, or school. Mapped "buildings" that enclose other buildings (e.g. the Sacred Heart compound) become perimeter walls. Statues and clock towers on mapped roundabouts get a plaza. Pagodas mapped as points get a stupa at the nearest clear spot.
 
+### Lawkanandar Pagoda & Satkyar Muni Pagoda
+
+- **Code:** `src/world/landmarks/LawkanandarPagoda.ts` (modular parts) and `src/world/landmarks/MirrorShrine.ts`; layout logic is pure and tested in `src/geo/pagodaLayout.ts`.
+- **Lawkanandar placement:**
+  - Positioned at OSM node 1230796347 through the shared projection.
+  - The mapped footprint is a rough circle, so the pipeline fits the square courtyard inside the **mapped ring road** (OSM roads only).
+  - The main entrance faces the nearest major road (north, May Yu Road).
+  - The stupa uses published figures (about 49 m / 162 ft tall).
+- **Lawkanandar model:**
+  - An 8-pointed star stepped base with small gold stupas on its points.
+  - Walk-through gate pavilions with tiered gold roofs on all four stairs.
+  - A marble-slab courtyard, white balustrade with gold-capped posts, corner pavilions, a tree line, naga heads, stone lions, twin-globe lamps and a bilingual sign.
+- **Satkyar Muni Pagoda (mirror shrine):**
+  - Not in OpenStreetMap. It is placed from the project owner's description, on Lawkanandar's west axis, in `data/user-landmarks.json` and labelled in game.
+  - Glass walls with golden columns, a three-tier gold roof and an accessible interior with a seated Buddha.
+  - A covered colonnade links it to Lawkanandar's west staircase.
+- **Materials and lighting:**
+  - Gold is physically based with a sky-gradient reflection map (`src/world/goldEnvironment.ts`), so it reads as metal rather than flat yellow. It is warm at sunset and floodlit at night through emissive light; no extra dynamic lights.
+  - Tiles and plaster use generated normal maps.
+- **Physics:**
+  - Walk-on stair ramps (people only; cars, including flying ones, cannot climb them), with box colliders for walls, columns and the altar.
+  - Full-height stacked colliders for the stupas.
+- **Interactions:** **E** shows site information (OSM id, coordinates, what is real versus reconstructed) or sits at a meditation mat. "View architectural details" flies the camera around the stupa. **P** saves a PNG photo.
+- **Visitors:** they walk the clockwise path around the stupa, kneel to pray at set spots and sit at the mats. They only exist near the site, and there are fewer at night.
+- **Discovery:** every landmark is discovered within 30 m (70 m for pagoda complexes) and saved in `localStorage` (`sittwe3d.discoveries`, versioned and validated). Reset Game clears it.
+- **Navigation and map:** searching for or choosing the pagoda routes you to the bottom of the main staircase. Major sites get gold markers on the minimap and larger markers on the full map.
+- **Detail levels:** full detail within 170 m, the complex without small props to 420 m, and a low-detail stupa beyond.
+
 ## Data pipeline (`scripts/`)
 
 **Fast path (recommended):** download the Geofabrik extract and cut out the world locally (about 20 s):

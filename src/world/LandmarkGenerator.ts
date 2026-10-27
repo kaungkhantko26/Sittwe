@@ -4,6 +4,9 @@ import { distToSegmentSq } from '../geo/geometry2d';
 import { buildMonument, disposeMonument, MONUMENT_KINDS } from './MonumentGenerator';
 import { buildPromenade } from './PromenadeGenerator';
 import { buildPagoda } from './PagodaGenerator';
+import { isLawkanandar, LAWKANANDAR, pagodaLayout } from '../geo/pagodaLayout';
+import { buildLawkanandar, type PagodaSite } from './landmarks/LawkanandarPagoda';
+import { buildMirrorShrine } from './landmarks/MirrorShrine';
 import { materials } from './materials';
 import type { PolygonIndex, SegmentIndex } from './SpatialIndex';
 
@@ -87,6 +90,8 @@ export interface LandmarkObjects {
   boxes: number[];
   /** Convex hull colliders (ramps). */
   ramps: number[][];
+  /** Interactive landmark sites (pagoda complexes) in this chunk. */
+  sites: PagodaSite[];
 }
 
 /** Yaw (0 = -Z) facing the nearest point on a major mapped road, or 0 if none nearby. */
@@ -122,6 +127,7 @@ export function buildLandmarks(list: ChunkLandmark[], lang: 'en' | 'rki', buildi
   const stupas: number[] = [];
   const boxes: number[] = [];
   const ramps: number[][] = [];
+  const sites: PagodaSite[] = [];
   for (const lm of list) {
     const local = lm.nl ?? (/[က-႟]/.test(lm.n) ? lm.n : undefined);
     const en = lm.ne ?? (local ? undefined : lm.n);
@@ -142,7 +148,35 @@ export function buildLandmarks(list: ChunkLandmark[], lang: 'en' | 'rki', buildi
     // Pagodas mapped as points: the pipeline found the clearest spot near the mapped node (sx, sz, ss).
     const buddhist = lm.cat === 'worship' && (lm.rel === 'buddhist' || lm.k === 'pagoda' || /ဘုရား|စေတီ|pagoda|phaya|paya|zedi/i.test(`${lm.n} ${lm.ne ?? ''}`));
     const spot = lm.sx !== undefined && lm.sz !== undefined ? { x: lm.sx, z: lm.sz, s: lm.ss ?? 0.8 } : !lm.fp && !buildings.hit(lm.x, lm.z, 3.5) && !roads.hit(lm.x, lm.z, 3.5) ? { x: lm.x, z: lm.z, s: 0.8 } : null;
-    if (lm.pg && typeof document !== 'undefined') {
+    if (lm.ms && typeof document !== 'undefined') {
+      // User-supplied mirror shrine (Satkyar Muni), linked to its anchor pagoda.
+      const shrine = buildMirrorShrine(lm);
+      if (shrine) {
+        group.add(shrine.group);
+        stupas.push(...shrine.colliders);
+        boxes.push(...shrine.boxes);
+        ramps.push(...shrine.ramps);
+        sites.push(shrine.site);
+        sprite.position.y = 16;
+      }
+    } else if (lm.pg && typeof document !== 'undefined' && isLawkanandar(lm)) {
+      // Dedicated modular model; replaces the generic pagoda for this landmark.
+      const layout = pagodaLayout(lm.pg, lm, {
+        roadDistance: (x, z) => roads.nearest(x, z, 300)?.dist ?? Infinity,
+        stupa: { baseR: LAWKANANDAR.baseCircumference / (2 * Math.PI), height: LAWKANANDAR.totalHeight },
+        hall: false, // satellite layout: gate pavilions; the image house is Satkyar Muni
+        ...(lm.pe ? { mainOut: lm.pe } : {}),
+      });
+      if (layout) {
+        const pag = buildLawkanandar(lm, layout);
+        group.add(pag.group);
+        stupas.push(...pag.colliders);
+        boxes.push(...pag.boxes);
+        ramps.push(...pag.ramps);
+        sites.push(pag.site);
+        sprite.position.set(layout.centre[0], LAWKANANDAR.totalHeight + 6, layout.centre[1]);
+      }
+    } else if (lm.pg && typeof document !== 'undefined') {
       const pag = buildPagoda(lm);
       if (pag) {
         group.add(pag.group);
@@ -180,7 +214,7 @@ export function buildLandmarks(list: ChunkLandmark[], lang: 'en' | 'rki', buildi
       sprite.position.y = mon.height + 4;
     }
   }
-  return { group, labels, stupas, boxes, ramps };
+  return { group, labels, stupas, boxes, ramps, sites };
 }
 
 export function disposeLandmarks(objs: LandmarkObjects): void {

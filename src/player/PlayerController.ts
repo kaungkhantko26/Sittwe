@@ -178,7 +178,9 @@ export class PlayerController {
     // On the (flat) ground, hold a constant resting height. Without this the
     // controller's push-down / snap-up alternates every step and the character
     // visibly trembles by 1–2 cm.
-    if (this.grounded && this.vel.y <= 0 && ny < minY + 0.12) ny = restY;
+    // Only inside the tiny jitter band and never while the controller is lifting
+    // the character (ramps, steps), or climbing would be undone every step.
+    if (this.grounded && this.vel.y <= 0 && m.y <= 0.0005 && Math.abs(ny - restY) < 0.03) ny = restY;
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     if (this.grounded && this.vel.y < 0) this.vel.y = 0;
     this.groundSpeed = Math.hypot(nx - t.x, nz - t.z) / dt;

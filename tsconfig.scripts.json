@@ -4,5 +4,5 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["scripts", "src/config.ts", "src/geo/GeoProjection.ts", "src/geo/geometry2d.ts", "src/geo/OSMParser.ts", "src/geo/chunkFormat.ts", "src/geo/validateChunk.ts", "src/geo/landmarkLinker.ts", "src/geo/roadGraph.ts", "src/geo/promenade.ts"]
+  "include": ["scripts", "src/config.ts", "src/geo/GeoProjection.ts", "src/geo/geometry2d.ts", "src/geo/OSMParser.ts", "src/geo/chunkFormat.ts", "src/geo/validateChunk.ts", "src/geo/landmarkLinker.ts", "src/geo/roadGraph.ts", "src/geo/promenade.ts", "src/geo/pagodaLayout.ts"]
 }

@@ -29,6 +29,8 @@ import {
 } from '../src/geo/chunkFormat';
 import { buildGraphData } from '../src/geo/roadGraph';
 import { fitPromenade } from '../src/geo/promenade';
+import { pagodaLayout } from '../src/geo/pagodaLayout';
+import { existsSync } from 'node:fs';
 import { roundaboutSite } from '../src/geo/landmarkSite';
 import { linkLandmarks, markCompounds, toRecord } from '../src/geo/landmarkLinker';
 import { clipPolyline, clipRing, distToSegmentSq, pointInRing, ringBounds, ringCentroid, rectsIntersect, type Pt, type Rect } from '../src/geo/geometry2d';
@@ -247,6 +249,99 @@ function main(): void {
   // Sea polygons in local meters.
   const seaData: SeaData = { polygons: sea.features.map((f) => f.geometry.coordinates.map((r) => flat(openXZ(r)))) };
   const seaRings = sea.features.map((f) => openXZ(f.geometry.coordinates[0]!));
+
+  // Pagoda platforms mapped as rough circles: when a mapped road ring encloses
+  // the complex (as at Lawkanandar), fit the square courtyard inside that ring,
+  // aligned with it. Uses only OSM roads; the circle is kept otherwise.
+  for (const lm of allLandmarks) {
+    if (!lm.pg) continue;
+    const ring: Pt[] = [];
+    for (let i = 0; i < lm.pg.length; i += 2) ring.push([lm.pg[i]!, lm.pg[i + 1]!]);
+    let perim = 0;
+    for (let i = 0; i < ring.length; i++) perim += Math.hypot(ring[(i + 1) % ring.length]![0] - ring[i]![0], ring[(i + 1) % ring.length]![1] - ring[i]![1]);
+    let area = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) area += ring[j]![0] * ring[i]![1] - ring[i]![0] * ring[j]![1];
+    area = Math.abs(area) / 2;
+    const circularity = (4 * Math.PI * area) / (perim * perim);
+    if (circularity < 0.85 || ring.length < 12) continue;
+    const R = Math.sqrt(area / Math.PI);
+    const [cx, cz] = [lm.x, lm.z];
+    // Road segments close around the platform.
+    let sx = 0;
+    let sy = 0;
+    let minD = Infinity;
+    for (const { pts } of roadXZ) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, az] = pts[i]!;
+        const [bx, bz] = pts[i + 1]!;
+        const d = Math.sqrt(distToSegmentSq(cx, cz, ax, az, bx, bz));
+        if (d > R * 2.2 || d < R * 0.6) continue;
+        const len = Math.hypot(bx - ax, bz - az);
+        const th = Math.atan2(bz - az, bx - ax) * 4; // directions modulo 90°
+        sx += Math.cos(th) * len;
+        sy += Math.sin(th) * len;
+        minD = Math.min(minD, d);
+      }
+    }
+    if (!Number.isFinite(minD) || Math.hypot(sx, sy) < 1) continue;
+    const theta = Math.atan2(sy, sx) / 4;
+    const half = Math.min(R * 1.05, minD - 7); // keep the road and a verge outside
+    if (half < R * 0.6) continue;
+    const ux = Math.cos(theta);
+    const uz = Math.sin(theta);
+    const sq: number[] = [];
+    for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) sq.push(r2(cx + (ux * a - uz * b) * half), r2(cz + (uz * a + ux * b) * half));
+    lm.pg = sq;
+    // Keep the rendered platform (the linked building footprint) in sync.
+    for (const c of allChunks) for (const b of c.buildings) if (b.id === lm.b) b.p = sq;
+    console.log(`Pagoda ${lm.ne ?? lm.n}: circular footprint (R ${R.toFixed(1)} m) → ${(half * 2).toFixed(1)} m square inside the mapped ring road`);
+  }
+
+  // Main entrance of each pagoda complex: the side facing the nearest major road.
+  const majorRoads = roadXZ.filter((r) => ['primary', 'secondary', 'tertiary'].includes(r.props.cls));
+  for (const lm of allLandmarks) {
+    if (!lm.pg) continue;
+    const layout = pagodaLayout(lm.pg, lm, {
+      roadDistance: (x, z) => {
+        let best = Infinity;
+        for (const { pts } of majorRoads) for (let i = 0; i < pts.length - 1; i++) best = Math.min(best, distToSegmentSq(x, z, pts[i]![0], pts[i]![1], pts[i + 1]![0], pts[i + 1]![1]));
+        return Math.sqrt(best);
+      },
+    });
+    if (!layout) continue;
+    const e = layout.entrances[layout.main]!;
+    lm.pe = [Math.round(e.out[0] * 1000) / 1000, Math.round(e.out[1] * 1000) / 1000];
+    console.log(`Pagoda ${lm.ne ?? lm.n}: main entrance faces (${lm.pe[0]}, ${lm.pe[1]})`);
+  }
+
+  // User-supplied landmarks (not in OSM), placed relative to a mapped anchor.
+  const userFile = join(ROOT, 'data', 'user-landmarks.json');
+  if (existsSync(userFile)) {
+    const extra = JSON.parse(readFileSync(userFile, 'utf8')) as { landmarks: Array<{ id: string; name: string; nameEn?: string; kind: string; anchor: string; side: 'west' | 'east' | 'north' | 'south'; gap: number; source: string }> };
+    for (const u of extra.landmarks) {
+      const anchor = allLandmarks.find((l) => l.id === u.anchor);
+      if (!anchor?.pg) {
+        console.warn(`User landmark ${u.id}: anchor ${u.anchor} has no pagoda footprint; skipped.`);
+        continue;
+      }
+      const layout = pagodaLayout(anchor.pg, anchor);
+      if (!layout) continue;
+      const want: [number, number] = u.side === 'west' ? [-1, 0] : u.side === 'east' ? [1, 0] : u.side === 'north' ? [0, -1] : [0, 1];
+      const e = [...layout.entrances].sort((a, b) => b.out[0] * want[0] + b.out[1] * want[1] - (a.out[0] * want[0] + a.out[1] * want[1]))[0]!;
+      const half = 7.5; // shrine platform half-size
+      const d = 2.4 + u.gap + half + 2.6; // stairs + gap + shrine stairs + half platform
+      const x = r2(e.edge[0] + e.out[0] * d);
+      const z = r2(e.edge[1] + e.out[1] * d);
+      const yaw = Math.atan2(e.out[0], e.out[1]); // faces back toward the anchor
+      const lm: ChunkLandmark = { id: u.id, n: u.name, cat: 'worship', k: u.kind, fp: false, x, z, rel: 'buddhist', nl: u.name, src: u.source, h: 12, ms: { yaw, link: [r2(e.bottom[0]), r2(e.bottom[1]), r2(x - e.out[0] * (half + 2.6)), r2(z - e.out[1] * (half + 2.6))] } };
+      if (u.nameEn) lm.ne = u.nameEn;
+      const c = chunkAt(x, z);
+      if (!c) continue;
+      c.landmarks.push(lm);
+      allLandmarks.push(lm);
+      console.log(`User landmark ${u.nameEn ?? u.name} placed ${u.side} of ${anchor.ne ?? anchor.n} at (${x}, ${z})`);
+    }
+  }
 
   // Clock towers: Sittwe has an Old (colonial, 1887, near the Central Market)
   // and a New (Burmese-style, downtown) clock tower. Style by name, else by

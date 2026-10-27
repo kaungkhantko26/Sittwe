@@ -1,0 +1,15 @@
+{
+  "note": "Landmarks supplied by the project owner that are not (yet) mapped in OpenStreetMap. Each is placed relative to a mapped anchor, never from third-party map imagery. Please add them to OpenStreetMap so they can be sourced properly.",
+  "landmarks": [
+    {
+      "id": "user/satkyar-muni",
+      "name": "သကျမုနိ ဘုရား",
+      "nameEn": "Satkyar Muni Pagoda",
+      "kind": "mirror_shrine",
+      "anchor": "node/1230796347",
+      "side": "west",
+      "gap": 14,
+      "source": "Project owner's description: the Satkyar Muni image house stands west of Lawkanandar Pagoda and is linked to it."
+    }
+  ]
+}

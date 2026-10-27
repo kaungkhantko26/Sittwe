@@ -22,11 +22,14 @@ export const Groups = {
   ground: groups(Layer.Ground, ALL),
   building: groups(Layer.Building, ALL),
   prop: groups(Layer.Prop, ALL),
+  /** Walk-on surfaces (stair ramps): people collide with them, vehicles do not. */
+  walkway: groups(Layer.Building, Layer.Player),
   boundary: groups(Layer.Boundary, ALL),
   player: groups(Layer.Player, ALL),
   vehicle: groups(Layer.Vehicle, ALL),
   /** Camera occlusion rays hit static world geometry only. */
   cameraRay: groups(ALL, Layer.Building | Layer.Prop | Layer.Ground),
   /** Wheel suspension rays: ground, buildings, props (never the chassis itself). */
-  wheelRay: groups(ALL, Layer.Ground | Layer.Building | Layer.Prop | Layer.Boundary),
+  // Membership = Vehicle so walk-only surfaces (stair ramps) are invisible to wheels.
+  wheelRay: groups(Layer.Vehicle, Layer.Ground | Layer.Building | Layer.Prop | Layer.Boundary),
 } as const;

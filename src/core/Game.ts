@@ -17,6 +17,12 @@ import { RemotePlayers } from '../systems/RemotePlayers';
 import type { PlayerSnapshot } from '../systems/RoomProtocol';
 import { roomPanel } from '../ui/RoomPanel';
 import { Navigation } from '../systems/Navigation';
+import { Discoveries } from '../systems/Discoveries';
+import { kneelPose, PagodaVisitors } from '../systems/PagodaVisitors';
+import { initGoldEnvironment, updateGoldEnvironment } from '../world/goldEnvironment';
+import { pagodaLayout, PLATFORM_Y } from '../geo/pagodaLayout';
+import type { PagodaSite } from '../world/landmarks/LawkanandarPagoda';
+import { worldToGeo } from '../geo/GeoProjection';
 import {AdaptiveResolution} from '../systems/AdaptiveResolution';
 import { PerformanceManager } from '../systems/PerformanceManager';
 import { SaveManager, type SaveData } from '../systems/SaveManager';
@@ -82,6 +88,14 @@ export class Game {
   private manifest: WorldManifest | null = null;
   private beacon!: THREE.Mesh;
   private nav: Navigation | null = null;
+  private readonly discoveries = new Discoveries();
+  private visitors!: PagodaVisitors;
+  private discoveryTimer = 0;
+  /** Seated at a meditation mat (pose held until the player moves). */
+  private sitting = false;
+  /** Cinematic fly-around for "View architectural details". */
+  private detailView: { cx: number; cz: number; r: number; h: number; t: number } | null = null;
+  private photoRequested = false;
   private traffic: TrafficSystem | null = null;
 
   private state: GameState = 'boot';
@@ -117,7 +131,10 @@ export class Game {
     this.loop = new GameLoop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, alpha) => this.update(dt, alpha),
-      render: () => this.renderer.render(this.scene, this.camera),
+      render: () => {
+        this.renderer.render(this.scene, this.camera);
+        if (this.photoRequested) this.capturePhoto();
+      },
     });
 
     document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
@@ -168,6 +185,8 @@ export class Game {
       await this.housing.init();
       this.world.setHome(this.housing.home);
       this.pedestrians = new Pedestrians(this.scene,this.world);
+      this.visitors = new PagodaVisitors(this.scene);
+      initGoldEnvironment(this.renderer.three);
       const sp = { ...this.housing.home, yaw: Math.PI };
       this.player = new PlayerController(this.physics, s.playerName, sp.x, sp.z, s.character);
       this.player.teleport(sp.x,sp.z,sp.yaw,HOME_FLOOR);
@@ -201,6 +220,10 @@ export class Game {
           this.fullMap.setRoute(pts);
         };
         this.fullMap.setSearchIndex(this.buildSearchIndex(manifest));
+      }
+      {
+        const major = manifest.landmarks.filter((l) => l.pg || l.ms || ['clock', 'monument', 'memorial', 'viewpoint'].includes(l.k));
+        this.hud.minimap.setLandmarks(major.map((l) => ({ x: l.x, z: l.z, name: l.ne ?? l.n, kind: l.pg ? 'pagoda' : l.ms ? 'shrine' : 'monument' })));
       }
       this.applySettings(s, null);
       this.loop.start();
@@ -491,6 +514,10 @@ export class Game {
       this.fullMap.focusSearch();
       return;
     }
+    if (e.code === 'KeyP' && this.state === 'playing') {
+      this.photoRequested = true;
+      return;
+    }
     if (e.code === 'KeyM') {
       if (this.state === 'map') this.closeMap();
       else if (this.state === 'playing' || this.state === 'paused') this.openMap();
@@ -500,6 +527,7 @@ export class Game {
   private resetGame(): void {
     if (!window.confirm(t('resetConfirm'))) return;
     this.saves.clear();
+    this.discoveries.clear();
     this.modal.close();
     this.pauseMenu.show(false);
     if (this.state === 'menu') {
@@ -542,6 +570,8 @@ export class Game {
   }
 
   private setDestination(d: { x: number; z: number } | null): void {
+    // Pagoda complexes: navigate to the bottom of the main staircase, not the stupa centre.
+    if (d) d = this.pagodaEntrance(d.x, d.z) ?? d;
     this.destination = d;
     this.hud.minimap.setDestination(d);
     this.beacon.visible = !!d;
@@ -718,6 +748,8 @@ export class Game {
     if (this.cam) {
       if (menuLike) {
         this.cam.menuOrbit(dt, focus);
+      } else if (this.state === 'playing' && this.detailView) {
+        this.updateDetailView(dt);
       } else if (this.state === 'playing') {
         const m = inp.consumeMouse();
         this.cam.input(m.dx, m.dy, inp.consumeWheel());
@@ -742,6 +774,7 @@ export class Game {
     if (this.state === 'playing' || menuLike) this.cycle.update(dt);
     this.cycle.overcast = this.weather ? this.weather.amount : 0;
     const ls = this.cycle.compute();
+    updateGoldEnvironment(ls.day, ls.night);
     if (this.lighting) {
       this.lighting.update(dt, ls, focus, this.camera, this.renderer.three, (x, z, r, n) => this.world.lampsNear(x, z, r, n), this.weather.amount);
       this.weather.update(dt, this.camera.position);
@@ -773,6 +806,10 @@ export class Game {
       const focus=this.focusPoint();
       this.pedestrians.maxPeople=this.settings.get().quality==='low'?8:18;
       this.pedestrians.update(Math.min(dt,.05),focus.x,focus.z,this.cycle.hours);
+      this.visitors.maxPerSite = this.settings.get().quality === 'low' ? 4 : 8;
+      this.visitors.update(Math.min(dt, 0.05), this.world.pagodaSites(), focus.x, focus.z, this.cycle.hours);
+      this.updateDiscoveries(dt, focus.x, focus.z);
+      if (this.sitting) kneelPose(this.player.rig, performance.now() / 1000);
     }
     if (this.state === 'map') {
       const p = this.focusPoint();
@@ -828,10 +865,17 @@ export class Game {
       this.world.toggleHomeDoor();
     } else if (inp.wasPressed('KeyE') && !driving && this.pedestrians.nearby(this.player.position.x,this.player.position.z)) {
       this.hud.toast(this.pedestrians.nearby(this.player.position.x,this.player.position.z)!,3);
+    } else if (inp.wasPressed('KeyE') && !driving && this.nearPagoda()) {
+      const site = this.nearPagoda()!;
+      const mat = this.nearMat(site);
+      if (this.sitting) this.standUp();
+      else if (mat) this.sitAt(mat);
+      else this.openPagodaInfo(site);
     } else if (inp.wasPressed('KeyE') && !driving) {
       const lm = this.nearestLandmark(25);
       if (lm) this.hud.toast(`${lm.name} — ${lm.cat}`, 3);
     }
+    if (this.sitting && (inp.isDown('KeyW') || inp.isDown('KeyA') || inp.isDown('KeyS') || inp.isDown('KeyD') || inp.isDown('Space'))) this.standUp();
   }
 
   private stopDance(): void {
@@ -873,6 +917,141 @@ export class Game {
     this.hud.toast('🚗 Car spawned nearby — press F to drive', 2);
   }
 
+  // ---------------------------------------------------------------------------
+  // Landmark sites: pagoda interactions, discovery, photos
+  // ---------------------------------------------------------------------------
+
+  /** The pagoda complex the player is standing in or right next to. */
+  private nearPagoda(): PagodaSite | null {
+    const p = this.player.position;
+    for (const s of this.world.pagodaSites()) {
+      const [cx, cz] = s.layout.centre;
+      if (Math.hypot(p.x - cx, p.z - cz) < Math.max(s.layout.lenU, s.layout.lenV) / 2 + 6) return s;
+    }
+    return null;
+  }
+
+  private nearMat(site: PagodaSite): [number, number, number] | null {
+    const p = this.player.position;
+    return site.layout.mats.find(([x, z]) => Math.hypot(p.x - x, p.z - z) < 1.3) ?? null;
+  }
+
+  private sitAt(mat: [number, number, number]): void {
+    this.stopDance();
+    this.player.teleport(mat[0], mat[1], mat[2], PLATFORM_Y);
+    this.sitting = true;
+    this.hud.toast('Sitting quietly — move or press E to stand', 2.5);
+  }
+
+  private standUp(): void {
+    if (!this.sitting) return;
+    this.sitting = false;
+    this.player.rig.body.position.y = 0.92;
+    this.player.rig.body.rotation.set(0, 0, 0);
+    this.player.rig.leftLeg.rotation.set(0, 0, 0);
+    this.player.rig.rightLeg.rotation.set(0, 0, 0);
+    this.player.rig.leftArm.rotation.set(0, 0, 0);
+    this.player.rig.rightArm.rotation.set(0, 0, 0);
+    this.player.rig.head.rotation.set(0, 0, 0);
+  }
+
+  private openPagodaInfo(site: PagodaSite): void {
+    const [cx, cz] = site.layout.centre;
+    const g = worldToGeo(cx, 0, cz);
+    const found = this.discoveries.when(site.id);
+    const total = this.manifest?.landmarks.length ?? 0;
+    const el = document.createElement('div');
+    el.className = 'about';
+    const p = (text: string, cls = '') => {
+      const e = document.createElement('p');
+      if (cls) e.className = cls;
+      e.textContent = text;
+      el.appendChild(e);
+    };
+    if (site.nameLocal) p(site.nameLocal, 'lm-local');
+    p(`Location: ${g.lat.toFixed(5)}° N, ${g.lon.toFixed(5)}° E · OpenStreetMap ${site.id}`);
+    p(`Platform about ${Math.round(site.layout.lenU)} m × ${Math.round(site.layout.lenV)} m · about ${Math.round(site.layout.stupa.height)} m tall.`);
+    p(site.note, 'muted small');
+    p(found ? `Discovered ${new Date(found).toLocaleString()} · ${this.discoveries.count} of ${total} places discovered.` : `${this.discoveries.count} of ${total} places discovered.`, 'small');
+    const row = document.createElement('div');
+    row.className = 'row gap';
+    const btn = (label: string, fn: () => void, cls = 'btn') => {
+      const b = document.createElement('button');
+      b.className = cls;
+      b.textContent = label;
+      b.onclick = fn;
+      row.appendChild(b);
+    };
+    btn('View architectural details', () => {
+      this.modal.close();
+      this.detailView = { cx, cz, r: Math.max(site.layout.lenU, site.layout.lenV) * 0.85, h: site.layout.stupa.height * 0.55, t: 0 };
+      this.hud.toast('Architectural view — press any key to return', 3);
+      this.input.requestPointerLock();
+    }, 'btn primary');
+    btn('Take photo (P)', () => {
+      this.modal.close();
+      this.photoRequested = true;
+    });
+    el.appendChild(row);
+    this.input.exitPointerLock();
+    this.modal.open(site.name, el);
+  }
+
+  private updateDetailView(dt: number): void {
+    const v = this.detailView!;
+    v.t += dt;
+    const a = v.t * 0.12;
+    this.camera.position.set(v.cx + Math.sin(a) * v.r, v.h * (0.55 + 0.25 * Math.sin(v.t * 0.2)), v.cz + Math.cos(a) * v.r);
+    this.camera.lookAt(v.cx, v.h * 0.6, v.cz);
+    const inp = this.input;
+    const m = inp.consumeMouse();
+    const anyKey = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyE', 'KeyF', 'Escape'].some((k) => inp.wasPressed(k));
+    if (v.t > 40 || anyKey || Math.abs(m.dx) + Math.abs(m.dy) > 40) this.detailView = null;
+  }
+
+  /** Marks nearby landmarks discovered (larger radius for pagoda complexes). */
+  private updateDiscoveries(dt: number, x: number, z: number): void {
+    this.discoveryTimer -= dt;
+    if (this.discoveryTimer > 0 || !this.manifest) return;
+    this.discoveryTimer = 0.5;
+    for (const lm of this.manifest.landmarks) {
+      const r = lm.pg ? 70 : 30;
+      if (Math.abs(lm.x - x) > r || Math.abs(lm.z - z) > r) continue;
+      if (Math.hypot(lm.x - x, lm.z - z) > r) continue;
+      if (this.discoveries.discover(lm.id)) {
+        const name = getLang() === 'rki' ? (lm.nl ?? lm.n) : (lm.ne ?? lm.n);
+        this.hud.toast(`✦ Discovered: ${name} (${this.discoveries.count}/${this.manifest.landmarks.length})`, 3.5);
+      }
+    }
+  }
+
+  /** Bottom of the main staircase when (x, z) is a pagoda complex; otherwise null. */
+  private pagodaEntrance(x: number, z: number): { x: number; z: number } | null {
+    const lm = this.manifest?.landmarks.find((l) => l.pg && Math.hypot(l.x - x, l.z - z) < 45);
+    if (!lm?.pg) return null;
+    const live = this.world.pagodaSites().find((s) => s.id === lm.id);
+    const layout = live?.layout ?? pagodaLayout(lm.pg, lm, lm.pe ? { mainOut: lm.pe } : { roadDistance: (px, pz) => (this.nav ? Math.hypot(this.nav.graph.x(this.nav.graph.nearestNode(px, pz, 'walk', 400)) - px, this.nav.graph.z(this.nav.graph.nearestNode(px, pz, 'walk', 400)) - pz) : 0) });
+    if (!layout) return null;
+    const e = layout.entrances[layout.main]!;
+    return { x: e.bottom[0] + e.out[0] * 1.5, z: e.bottom[1] + e.out[1] * 1.5 };
+  }
+
+  /** Saves the current frame as a PNG (call right after rendering). */
+  private capturePhoto(): void {
+    this.photoRequested = false;
+    const canvas = this.renderer.canvas;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `sittwe-3d-${stamp}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, 'image/png');
+    this.hud.toast('📷 Photo saved', 1.5);
+  }
+
   private nearestLandmark(maxDist: number): { name: string; cat: string; dist: number } | null {
     const p = this.focusPoint();
     let best: { name: string; cat: string; dist: number } | null = null;
@@ -899,7 +1078,10 @@ export class Game {
       if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
       else if(this.pedestrians.nearby(p.x,p.z)) prompt='E — '+this.pedestrians.nearby(p.x,p.z);
       else if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');
-      else {
+      else if (this.nearPagoda()) {
+        const site = this.nearPagoda()!;
+        prompt = this.sitting ? 'E — Stand up' : this.nearMat(site) ? 'E — Sit and meditate' : `E — ${site.name}: information`;
+      } else {
         const lm = this.nearestLandmark(25);
         if (lm) prompt = `E — ${lm.name}`;
       }
