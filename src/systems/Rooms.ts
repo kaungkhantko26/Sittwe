@@ -1,4 +1,4 @@
-import {loadRoomNetwork,testRelay} from './RoomNetwork';
+import {loadRoomNetwork,testRelay,type RoomNetwork} from './RoomNetwork';
 import type Peer from 'peerjs';
 import type {DataConnection} from 'peerjs';
 import {MAX_ROOM_PLAYERS,ROOM_VERSION,newRoomCode,roomCode,validSnapshot,type PlayerSnapshot} from './RoomProtocol';
@@ -16,7 +16,7 @@ export class Rooms {
   private lastSend=0;
   async checkRelay():Promise<void>{
     this.relayStatus='Testing relay…';this.onPanelChange();
-    try{const config=await loadRoomNetwork();this.relayStatus=!config.hasRelay?'Relay setup is required for blocked Wi-Fi/mobile networks.':await testRelay(config)?'TURN relay reachable — authentication and allocation passed.':'No TURN relay reachable from this network. Check relay credentials, quota and TCP/TLS support.';}
+    try{const config=await this.network();this.relayStatus=!config.hasRelay?'Relay setup is required for blocked Wi-Fi/mobile networks.':await testRelay(config)?'TURN relay reachable — authentication and allocation passed.':'No TURN relay reachable from this network. Check relay credentials, quota and TCP/TLS support.';}
     catch{this.relayStatus='Relay configuration or service could not be reached.';}
     this.onPanelChange();
   }
@@ -25,7 +25,7 @@ export class Rooms {
   onPanelChange:()=>void=()=>{};
   onJoin:(state:PlayerSnapshot)=>void=()=>{};
   onPlayers:(players:Array<{id:string;state:PlayerSnapshot}>)=>void=()=>{};
-  constructor(private readonly local:()=>PlayerSnapshot){}
+  constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetwork){}
   get active():boolean{return this.code!==null}
   get count():number{return this.states.size+1}
   private announce(text:string):void {this.status=text;this.onChange();this.onPanelChange()}
@@ -48,7 +48,7 @@ export class Rooms {
   private async open(id:string|null,generation:number):Promise<void> {
     if(typeof RTCPeerConnection==='undefined')throw new Error('This browser does not support multiplayer WebRTC. Solo play is available.');
     const {default:PeerClient}=await import('peerjs');if(generation!==this.generation)return;
-    const network=await loadRoomNetwork();if(generation!==this.generation)return;
+    const network=await this.network();if(generation!==this.generation)return;
     this.relayStatus=network.hasRelay?'TURN relay configured; direct or relayed connections available.':'Relay setup required for networks that block direct connections.';this.onPanelChange();
     const options={secure:true,debug:0,config:{iceServers:network.iceServers,iceTransportPolicy:network.iceTransportPolicy}};
     const peer=id?new PeerClient(id,options):new PeerClient(options);this.peer=peer;
@@ -61,9 +61,21 @@ export class Rooms {
     peer.on('disconnected',()=>{if(this.active)this.announce(`Room ${this.code} · signaling disconnected; existing players can continue`)});
   }
   private send(c:DataConnection,payload:unknown):void {if(c.open&&c.dataChannel?.readyState==='open'&&c.dataChannel.bufferedAmount<32_768){try{c.send(payload)}catch{/* A closed channel must not interrupt rendering. */}}}
+  private async inspectConnection(c:DataConnection,generation:number):Promise<void>{
+    try{
+      const stats=await c.peerConnection.getStats();let path='Direct connection';
+      stats.forEach(report=>{
+        if(report.type==='candidate-pair'&&report.state==='succeeded'&&report.nominated){
+          const local=stats.get(report.localCandidateId),remote=stats.get(report.remoteCandidateId);
+          if(local?.candidateType==='relay'||remote?.candidateType==='relay')path='Connected through TURN relay'+(local?.relayProtocol?' ('+String(local.relayProtocol).toUpperCase()+')':'');
+        }
+      });
+      if(generation===this.generation&&c.open){this.relayStatus=path;this.onPanelChange();}
+    }catch{/* Diagnostics must never interrupt room play. */}
+  }
   private attach(c:DataConnection,incoming:boolean,generation:number):void {
     this.links.set(c.peer,c);
-    c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()})});
+    c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()});void this.inspectConnection(c,generation)});
     c.on('data',raw=>{
       if(generation!==this.generation||!raw||typeof raw!=='object')return;
       const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>};

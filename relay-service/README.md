@@ -1,6 +1,8 @@
 # Cross-network room relay setup
 
-Status: client and credential proxy are ready. A live TURN account and deployed proxy are still required. GitHub Pages cannot execute this proxy itself.
+Status: the credential proxy is deployed at `https://sittwe-room-relay.relay-service.workers.dev/ice`, with the game-specific ICE configuration stored as a Worker secret. The public game uses automatic direct/TURN selection. Two actual room clients passed a relay-only synchronization check; this is not a physical-device/mobile-network test. GitHub Pages does not execute the proxy.
+
+The account currently uses the no-card 500 MB trial. Monitor the provider quota; exhaustion or credential expiry will prevent relayed connections. The steps below document setup and credential rotation.
 
 1. Complete the [Metered Open Relay signup](https://dashboard.metered.ca/signup?tool=turnserver) yourself, including password and provider terms. Use the free service if its current allowance meets your needs; do not enable paid billing without deciding to do so.
 2. Create a TURN credential in the dashboard. Keep the **credential-scoped** API key private; do not use a management/secret key in browser code or commit it.

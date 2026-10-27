@@ -1,4 +1,4 @@
 {
-  "iceServersUrl": "",
+  "iceServersUrl": "https://sittwe-room-relay.relay-service.workers.dev/ice",
   "relayOnly": false
 }
