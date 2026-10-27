@@ -4,6 +4,7 @@ import type { ChunkLandmark } from '../geo/chunkFormat';
 import { projection } from '../geo/GeoProjection';
 import { formatDistance } from './dom';
 import { getLang, t } from './i18n';
+import { playerColor, rimPosition, type FindMode, type FoundPlayer } from '../systems/PlayerFinder';
 
 /**
  * 2D maps rendered with MapLibre GL JS from the game's own locally cached
@@ -226,6 +227,36 @@ export class Minimap {
     });
   }
 
+  private readonly playerEls = new Map<string, HTMLElement>();
+
+  /** Room players: a coloured dot with their initial, or an arrow on the rim when they are off the minimap. */
+  setPlayers(list: FoundPlayer[]): void {
+    const keep = new Set(list.map((p) => p.id));
+    for (const [id, el] of this.playerEls) if (!keep.has(id)) { el.remove(); this.playerEls.delete(id); }
+    const w = this.el.clientWidth, h = this.el.clientHeight;
+    if (!w || !h) return;
+    const radius = Math.min(w, h) / 2 - 9;
+    for (const p of list) {
+      let el = this.playerEls.get(p.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'mm-player';
+        el.style.setProperty('--pc', playerColor(p.id));
+        el.innerHTML = '<span class="mm-player-dot"></span><span class="mm-player-arrow"></span>';
+        this.el.appendChild(el);
+        this.playerEls.set(p.id, el);
+      }
+      el.title = p.name;
+      el.querySelector('.mm-player-dot')!.textContent = (p.name.trim()[0] ?? '?').toUpperCase();
+      const pt = this.map.project(lonLat(p.x, p.z));
+      const r = rimPosition(pt.x - w / 2, pt.y - h / 2, radius);
+      el.classList.toggle('outside', r.outside);
+      el.classList.toggle('in-car', p.inVehicle);
+      el.style.transform = `translate(${w / 2 + r.x}px, ${h / 2 + r.y}px)`;
+      (el.querySelector('.mm-player-arrow') as HTMLElement).style.transform = `translate(-50%, -50%) rotate(${r.angle}deg) translateY(-12px)`;
+    }
+  }
+
   resize(): void {
     this.map.resize();
   }
@@ -241,6 +272,7 @@ export interface FullMapCallbacks {
   onGoHome(): void;
   onClose(): void;
   canTeleport(x: number, z: number): boolean;
+  onFindPlayer?(id: string, mode: FindMode): void;
 }
 
 /** Full-screen interactive map (M). Created lazily on first open. */
@@ -288,6 +320,10 @@ export class FullMap {
           <div class="row gap"><button class="btn home-check">Check home plot</button><button class="btn home-go">Go home</button></div>
           <p class="home-status small" role="status">Your home is stored locally in this browser.</p>
           <div class="row gap"><button class="btn primary home-confirm" disabled>Make this my home</button><button class="btn home-cancel">Cancel</button></div>
+        </section>
+        <section class="map-players hidden">
+          <h3>Players in your room</h3>
+          <ul class="player-list"></ul>
         </section>
         <h3 class="landmarks-title"></h3>
         <ul class="landmark-list"></ul>
@@ -499,6 +535,65 @@ export class FullMap {
       this.map.addLayer({id:'home-preview-fill',type:'fill',source:'home-preview',paint:{'fill-color':'#e9b64f','fill-opacity':.45}});
       this.map.addLayer({id:'home-preview-line',type:'line',source:'home-preview',paint:{'line-color':'#ffe1a0','line-width':3}});
     }
+  }
+
+  private playerMarkers = new Map<string, maplibregl.Marker>();
+  private playerListKey = '';
+
+  /** Room players on the full map, plus a list with navigate / follow / go-to buttons. */
+  setPlayers(list: FoundPlayer[]): void {
+    const keep = new Set(list.map((p) => p.id));
+    for (const [id, m] of this.playerMarkers) if (!keep.has(id)) { m.remove(); this.playerMarkers.delete(id); }
+    if (this.map) for (const p of list) {
+      let m = this.playerMarkers.get(p.id);
+      if (!m) {
+        const el = document.createElement('button');
+        el.className = 'map-player';
+        el.style.setProperty('--pc', playerColor(p.id));
+        el.addEventListener('click', (e) => { e.stopPropagation(); this.cb.onFindPlayer?.(p.id, 'navigate'); });
+        m = new maplibregl.Marker({ element: el }).setLngLat(lonLat(p.x, p.z)).addTo(this.map);
+        this.playerMarkers.set(p.id, m);
+      }
+      const el = m.getElement();
+      el.textContent = (p.name.trim()[0] ?? '?').toUpperCase();
+      el.title = `${p.name} — click to navigate`;
+      m.setLngLat(lonLat(p.x, p.z));
+    }
+    const section = this.el.querySelector('.map-players')!;
+    section.classList.toggle('hidden', list.length === 0);
+    const ul = this.el.querySelector('.player-list')!;
+    const sorted = list.map((p) => ({ p, d: Math.hypot(p.x - this.player.x, p.z - this.player.z) })).sort((a, b) => a.d - b.d);
+    // Rebuild only when names/order/distances (to 10 m) change, so buttons stay clickable.
+    const key = sorted.map(({ p, d }) => `${p.id}:${p.name}:${Math.round(d / 10)}:${p.inVehicle}`).join('|');
+    if (key === this.playerListKey) return;
+    this.playerListKey = key;
+    ul.replaceChildren(...sorted.map(({ p, d }) => {
+      const li = document.createElement('li');
+      li.className = 'player-row';
+      li.style.setProperty('--pc', playerColor(p.id));
+      const label = document.createElement('span');
+      label.className = 'player-name';
+      label.textContent = `${p.name}${p.inVehicle ? (p.flying ? ' ✈' : ' 🚗') : ''}`;
+      const dist = document.createElement('span');
+      dist.className = 'muted small';
+      dist.textContent = formatDistance(d);
+      const actions = document.createElement('span');
+      actions.className = 'row gap';
+      for (const [mode, text] of [['navigate', 'Navigate'], ['follow', 'Follow'], ['goto', 'Go to']] as const) {
+        const b = document.createElement('button');
+        b.className = 'btn small';
+        b.textContent = text;
+        b.addEventListener('click', () => this.cb.onFindPlayer?.(p.id, mode));
+        actions.appendChild(b);
+      }
+      li.append(label, dist, actions);
+      return li;
+    }));
+  }
+
+  /** Centres the full map on a point (used to show where a friend is). */
+  flyTo(x: number, z: number): void {
+    this.map?.easeTo({ center: lonLat(x, z), zoom: Math.max(this.map.getZoom(), 16), duration: 600 });
   }
 
   private updateInfo(): void {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { BuildingStyle, ChunkBuilding } from '../geo/chunkFormat';
-import { signedArea, type Pt } from '../geo/geometry2d';
+import { pointInRing, signedArea, type Pt } from '../geo/geometry2d';
 import { addBeam, GeometryBuilder } from './GeometryBuilder';
 import { facadeColor, hashString, roofColor, WINDOW_BAY_H, WINDOW_BAY_W } from './materials';
 
@@ -387,13 +387,67 @@ function addCompoundWall(walls: GeometryBuilder, col: ColliderBuilder, ring: Pt[
   });
 }
 
+/** Share of `inner`'s footprint that also lies inside `outer` (grid sampling). */
+export function overlapShare(inner: number[], outer: number[], samples = 12): number {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < inner.length; i += 2) {
+    minX = Math.min(minX, inner[i]!); maxX = Math.max(maxX, inner[i]!);
+    minZ = Math.min(minZ, inner[i + 1]!); maxZ = Math.max(maxZ, inner[i + 1]!);
+  }
+  const a = flatToPts(inner), b = flatToPts(outer);
+  let total = 0, shared = 0;
+  for (let i = 0; i < samples; i++) for (let j = 0; j < samples; j++) {
+    const x = minX + ((i + 0.5) / samples) * (maxX - minX), z = minZ + ((j + 0.5) / samples) * (maxZ - minZ);
+    if (!pointInRing(x, z, a)) continue;
+    total++;
+    if (pointInRing(x, z, b)) shared++;
+  }
+  return total ? shared / total : 0;
+}
+
+/**
+ * Some places are mapped twice in OSM (e.g. an outline plus a second, slightly
+ * different outline of the same building). Two flat roofs at the same height
+ * then flicker through each other (z-fighting). For each such overlapping pair
+ * the styled or larger building wins: the other one is dropped when it is mostly
+ * inside the winner, or its roof is lowered just below the winner's otherwise.
+ * Returns the buildings to draw with their (possibly adjusted) roof heights.
+ */
+export function resolveCoplanarRoofs(buildings: ChunkBuilding[]): Array<{ b: ChunkBuilding; h: number }> {
+  const out = buildings.map((b) => ({ b, h: b.h, skip: false }));
+  const box = buildings.map((b) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < b.p.length; i += 2) {
+      minX = Math.min(minX, b.p[i]!); maxX = Math.max(maxX, b.p[i]!);
+      minZ = Math.min(minZ, b.p[i + 1]!); maxZ = Math.max(maxZ, b.p[i + 1]!);
+    }
+    return { minX, maxX, minZ, maxZ, area: Math.abs(signedArea(flatToPts(b.p))) };
+  });
+  for (let i = 0; i < out.length; i++) {
+    for (let j = i + 1; j < out.length; j++) {
+      const A = out[i]!, B = out[j]!;
+      if (A.skip || B.skip || A.b.cp || B.b.cp || A.b.p.length < 6 || B.b.p.length < 6) continue;
+      if (Math.abs(A.h - B.h) > 0.3) continue;
+      const ba = box[i]!, bb = box[j]!;
+      if (ba.minX >= bb.maxX || ba.maxX <= bb.minX || ba.minZ >= bb.maxZ || ba.maxZ <= bb.minZ) continue;
+      const aWins = !!A.b.st !== !!B.b.st ? !!A.b.st : ba.area >= bb.area;
+      const [win, lose] = aWins ? [A, B] : [B, A];
+      const share = overlapShare(lose.b.p, win.b.p);
+      if (share <= 0.02) continue;
+      if (share >= 0.6) lose.skip = true;
+      else lose.h = Math.max(Math.max(0, lose.b.mh) + 1, win.h - 0.3);
+    }
+  }
+  return out.filter((o) => !o.skip).map(({ b, h }) => ({ b, h }));
+}
+
 export function buildBuildings(buildings: ChunkBuilding[]): BuildingMeshes {
   const walls = new GeometryBuilder();
   const roofs = new GeometryBuilder();
   const col = new ColliderBuilder();
   const footprints: Pt[][] = [];
 
-  for (const b of buildings) {
+  for (const { b, h: roofH } of resolveCoplanarRoofs(buildings)) {
     let outer = flatToPts(b.p);
     if (outer.length < 3) continue;
     outer = orientRing(outer, true);
@@ -407,7 +461,7 @@ export function buildBuildings(buildings: ChunkBuilding[]): BuildingMeshes {
     const def = b.st ? STYLES[b.st] : undefined;
     const pitched = def ? def.hip && outer.length === 4 && holes.length === 0 : shouldPitch(b, outer, holes.length);
     const y0 = Math.max(0, b.mh);
-    const y1 = Math.max(y0 + 1, b.h);
+    const y1 = Math.max(y0 + 1, roofH);
     const windows = (def ? def.windows : !NO_WINDOWS.has(b.k)) && y1 - y0 >= 2.4;
     const wallColor = def ? def.wall : facadeColor(b.id, b.k);
     walls.setColor(wallColor);

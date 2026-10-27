@@ -6,17 +6,25 @@ import {PlayerAnimations} from '../player/PlayerAnimations';
 import type {PlayerRig} from '../player/PlayerModel';
 import {createVehicleModel,disposeVehicleModel,type VehicleVisual} from '../vehicles/VehicleModel';
 import type {PlayerSnapshot} from './RoomProtocol';
+import type {FoundPlayer} from './PlayerFinder';
 import {createHeadlightBeams,type HeadlightBeams} from '../vehicles/HeadlightBeams';
+import {BoatLook} from '../vehicles/BoatLook';
 /** Real spotlights shared by the nearest remote cars with headlights on (fixed count: no shader recompiles). */
 const REMOTE_LIGHTS=3;
-interface Remote {rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;beams?:HeadlightBeams;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
+interface Remote {rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
 export class RemotePlayers {
  private players=new Map<string,Remote>();
  private seats:RideSeat[]=[];
  setSeats(seats:RideSeat[]):void{this.seats=seats}
+ /** This player's own car while driving in a room, so passengers riding with us sit inside it. */
+ localDriver:{id:string;root:THREE.Object3D}|null=null;
  ridePose(driverId:string):{position:THREE.Vector3;yaw:number;state:PlayerSnapshot}|null {
   const p=this.players.get(driverId);if(!p?.state.vehicle)return null;
   return {position:p.car?.root.position??p.rig.root.position,yaw:p.rig.root.rotation.y,state:p.state};
+ }
+ /** Everyone else in the room at their smoothed on-screen position (for the maps and the finder). */
+ list():FoundPlayer[] {
+  return [...this.players].map(([id,p])=>{const pos=p.car&&p.state.vehicle?p.car.root.position:p.rig.root.position;return {id,name:p.state.name,x:pos.x,z:pos.z,inVehicle:!!p.state.vehicle,flying:!!p.state.vehicle?.flying};});
  }
  nearestRide(position:THREE.Vector3):{id:string;name:string}|null {
   for(const [id,p] of this.players){const v=p.state.vehicle;if(v&&!v.flying&&p.state.speed<=2&&Math.abs(position.y-v.y)<2.5&&Math.hypot(position.x-v.x,position.z-v.z)<5&&this.seats.filter(s=>s.driverId===id).length<3)return {id,name:p.state.name};}return null;
@@ -48,7 +56,7 @@ export class RemotePlayers {
    p.rig.body.visible=!s.vehicle;p.rig.nameTag.visible=root.visible;
    if(s.vehicle){
     if(p.car&&p.color!==(s.vehicle.color??0xf2f3f4)){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.car=null;}
-    if(!p.car){p.color=s.vehicle.color??0xf2f3f4;p.car=createVehicleModel(p.color,true);p.beams=createHeadlightBeams(p.car);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
+    if(!p.car){p.color=s.vehicle.color??0xf2f3f4;p.car=createVehicleModel(p.color,true);p.beams=createHeadlightBeams(p.car);p.boat=new BoatLook(p.car,p.color);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
     const v=s.vehicle;p.car.root.visible=root.visible;
     p.car.root.position.copy(root.position);if(v.qw===undefined)p.car.root.rotation.y=root.rotation.y;
     if(v.qw!==undefined)p.car.root.quaternion.slerp(new THREE.Quaternion(v.qx!,v.qy!,v.qz!,v.qw).normalize(),1-Math.exp(-16*dt));
@@ -56,6 +64,7 @@ export class RemotePlayers {
     if(v.headlights&&root.visible&&night>.05)lit.push({car:p.car,d:Math.hypot(s.x-px,s.z-pz)});
     p.car.brakeMat.emissiveIntensity=v.braking?2.6:v.headlights?.8:.15;
     for(const thrust of p.car.thrusts)thrust.visible=v.flying;
+    p.boat?.update(dt,!!v.boat,s.speed);
     for(const rotor of p.car.rotors)rotor.rotation.y+=dt*(v.flying?75:12);
    }else {
     if(p.car)p.car.root.visible=false;
@@ -72,11 +81,14 @@ export class RemotePlayers {
    l.target.position.copy(this.tmp.set(0,-1.2,-16).applyMatrix4(c.car.root.matrixWorld));l.target.updateMatrixWorld();
    l.intensity=70*Math.min(1,night*1.5);
   });
-  for(const seat of this.seats){const p=this.players.get(seat.playerId),driver=this.players.get(seat.driverId);if(!p||!driver?.car)continue;
-   p.rig.body.visible=false;p.rig.root.position.copy(driver.car.root.position).add(new THREE.Vector3(seat.seat===1?.55:-.55,.15,seat.seat===1?-.3:.6).applyQuaternion(driver.car.root.quaternion));
+  for(const seat of this.seats){
+   const p=this.players.get(seat.playerId);if(!p)continue;
+   // The driver may be another player or this player (local car), so look up both.
+   const car=this.players.get(seat.driverId)?.car?.root??(this.localDriver?.id===seat.driverId?this.localDriver.root:null);if(!car)continue;
+   p.rig.body.visible=false;p.rig.root.position.copy(car.position).add(new THREE.Vector3(seat.seat===1?.55:-.55,.15,seat.seat===1?-.3:.6).applyQuaternion(car.quaternion));p.rig.root.rotation.y=new THREE.Euler().setFromQuaternion(car.quaternion,'YXZ').y;
    if(p.car)p.car.root.visible=false;
   }
  }
- private remove(p:Remote):void {p.rig.root.removeFromParent();disposeCharacter(p.rig);if(p.car){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.beams=undefined;}}
+ private remove(p:Remote):void {p.rig.root.removeFromParent();disposeCharacter(p.rig);if(p.car){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.beams=undefined;p.boat=undefined;}}
  clear():void {for(const p of this.players.values())this.remove(p);this.players.clear()}
 }

@@ -15,6 +15,7 @@ import { Pedestrians } from '../systems/Pedestrians';
 import { Rooms } from '../systems/Rooms';
 import { RemotePlayers } from '../systems/RemotePlayers';
 import { syncedHours, type PlayerSnapshot, type RoomEnvironment } from '../systems/RoomProtocol';
+import { shouldReroute, type FindMode, type FoundPlayer } from '../systems/PlayerFinder';
 import { roomPanel } from '../ui/RoomPanel';
 import { Navigation } from '../systems/Navigation';
 import { Discoveries } from '../systems/Discoveries';
@@ -107,6 +108,9 @@ export class Game {
   private suppressPause = false;
   private jumpQueued = false;
   private destination: { x: number; z: number } | null = null;
+  /** Room player being followed: the route re-plans as they move. */
+  private followId: string | null = null;
+  private followTimer = 0;
   private selectedVehicle = 0;
   private autosaveTimer = AUTOSAVE_SECONDS;
   private edgeWarnTimer = 0;
@@ -203,6 +207,11 @@ export class Game {
       this.player.anim.onStroke = () => this.audio.splash();
       this.scene.add(this.player.rig.root);
       this.vehicles = new VehicleSystem(this.scene, this.physics, manifest.spawn.vehicles);
+      this.vehicles.onBoatChange = (v, boat) => {
+        if (v !== this.vehicles.driving) return;
+        this.audio.splash();
+        this.hud.toast(boat ? '⛵ Boat mode — W/S for the water jet, A/D to steer' : '🚗 Back on land — car mode', 2.5);
+      };
       this.cam = new ThirdPersonCamera(this.camera, this.physics);
       this.beacon = createBeacon();
       this.scene.add(this.beacon);
@@ -274,6 +283,7 @@ export class Game {
         onTeleport: (x, z) => this.teleportTo(x, z),
         onClose: () => this.closeMap(),
         canTeleport: (x, z) => insideBounds(manifest.bounds, x, z, 5) && !this.world.isBlocked(x, z),
+        onFindPlayer: (id, mode) => this.findPlayer(id, mode),
       },
       manifest.landmarks,
       manifest.bounds,
@@ -585,7 +595,8 @@ export class Game {
     this.hud.refreshText(false);
   }
 
-  private setDestination(d: { x: number; z: number } | null): void {
+  private setDestination(d: { x: number; z: number } | null, following = false): void {
+    if (!following) this.followId = null;
     // Pagoda complexes: navigate to the bottom of the main staircase, not the stupa centre.
     if (d) d = this.pagodaEntrance(d.x, d.z) ?? d;
     this.destination = d;
@@ -618,14 +629,35 @@ export class Game {
 
   private networkSnapshot():PlayerSnapshot {
     const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
   }
 
   private openRooms():void {
     if(this.state==='playing')this.pause();
     this.modal.open('Play with friends',roomPanel(this.rooms,()=>{
       this.modal.close();if(this.state==='menu')void this.startGame(false);else if(this.state==='paused')this.resume();
-    }));
+    },{list:()=>this.remotePlayers.list(),me:()=>this.focusPoint(),find:(id,mode)=>this.findPlayer(id,mode)}));
+  }
+
+  /** Finds a room player: road route to them, keep following them, or teleport next to them. */
+  private findPlayer(id:string,mode:FindMode):void {
+    const p=this.remotePlayers.list().find(v=>v.id===id);
+    if(!p){this.hud.toast('That player is no longer in the room',3);return;}
+    const fromMap=this.state==='map';
+    if(!fromMap){this.modal.close();if(this.state==='paused')this.resume();}
+    if(mode==='goto'){this.followId=null;this.teleportTo(p.x+3,p.z+3);this.hud.toast(`Teleported to ${p.name}`,3);return;}
+    this.setDestination({x:p.x,z:p.z},mode==='follow');
+    this.followId=mode==='follow'?id:null;this.followTimer=0;
+    this.hud.toast(mode==='follow'?`Following ${p.name} — the route updates as they move`:`Route to ${p.name}`,3);
+    if(fromMap)this.fullMap.flyTo(p.x,p.z);
+  }
+
+  private updateFollow(dt:number,players:FoundPlayer[]):void {
+    if(!this.followId)return;
+    this.followTimer-=dt;if(this.followTimer>0)return;this.followTimer=1;
+    const p=players.find(v=>v.id===this.followId);
+    if(!p){this.followId=null;this.setDestination(null);this.hud.toast('The player you were following left the room',3);return;}
+    if(shouldReroute(this.destination,p))this.setDestination({x:p.x,z:p.z},true);
   }
 
   private async joinRoomAt(s:PlayerSnapshot):Promise<void> {
@@ -765,7 +797,7 @@ export class Game {
       const scale=this.adaptive.sample(dt);if(scale!==null){this.renderer.setPixelRatio(QUALITY_PRESETS[this.settings.get().quality].pixelRatio*scale);this.renderer.resize();}
     }
 
-    if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();this.remotePlayers.update(dt,p.x,p.z,this.cycle.compute().night);}
+    if(this.rooms){this.rooms.update(dt);const p=this.focusPoint();const own=this.vehicles?.driving,self=this.rooms.selfId;this.remotePlayers.localDriver=own&&self?{id:self,root:own.visual.root}:null;this.remotePlayers.update(dt,p.x,p.z,this.cycle.compute().night);}
     if(this.riding&&this.rooms.ride){const pose=this.remotePlayers.ridePose(this.rooms.ride.driverId);if(pose){this.ridePosition.copy(pose.position);this.rideYaw=pose.yaw;}}
     if (this.state === 'boot' && !this.world) return;
     const inp = this.input;
@@ -853,6 +885,7 @@ export class Game {
     if (this.state === 'map') {
       const p = this.focusPoint();
       this.fullMap.updatePlayer({ x: p.x, z: p.z, heading: this.facingHeading() });
+      this.fullMap.setPlayers(this.rooms?.active ? this.remotePlayers.list() : []);
     }
     inp.endFrame();
   }
@@ -1179,7 +1212,7 @@ export class Game {
       playerName: s.playerName,
       heading: camHeading,
       muted: s.muted,
-      driving: driving ? { speedKmh: driving.speedKmh, gear: driving.physics.gear, headlights: driving.headlightsOn } : null,
+      driving: driving ? { speedKmh: driving.speedKmh, gear: driving.physics.boat ? `⛵ ${driving.physics.gear}` : driving.physics.gear, headlights: driving.headlightsOn } : null,
       prompt,
       destination: dest,
       nav: navState && this.destination ? { text: navState.nextText, turn: navState.nextTurn, nextIn: navState.nextIn, remaining: navState.remaining, mode: navState.mode } : null,
@@ -1188,6 +1221,11 @@ export class Game {
         : null,
     });
     this.hud.minimap.update(p.x, p.z, this.facingHeading(), performance.now());
+    if (this.rooms) {
+      const others = this.rooms.active ? this.remotePlayers.list() : [];
+      this.hud.minimap.setPlayers(others);
+      this.updateFollow(dt, others);
+    }
 
     this.audio.update(dt, {
       day,

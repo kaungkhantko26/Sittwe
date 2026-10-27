@@ -65,6 +65,8 @@ export class Rooms {
   private receiveEnvironment(raw:unknown):void{if(!this.hosting&&validEnvironment(raw)){this.followingHost=true;this.onEnvironment(raw);}}
   constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetwork){}
   get active():boolean{return this.code!==null}
+  /** This player's room id (null when not connected). */
+  get selfId():string|null{return this.peer?.id??null}
   get count():number{return this.states.size+1}
   private announce(text:string):void {if(text===this.status)return;this.status=text;this.onChange();this.onPanelChange()}
   async create():Promise<void> {

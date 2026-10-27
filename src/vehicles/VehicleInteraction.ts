@@ -41,6 +41,8 @@ export class VehicleSystem {
   private nextId = 0;
   /** Number of cars placed by the map (not spawned by the player). */
   baseCount = 0;
+  /** Called when a car turns into a boat on water (true) or back into a car on land (false). */
+  onBoatChange: (v: Vehicle, boat: boolean) => void = () => {};
 
   canPlace(x:number,z:number,yaw:number,ignore?:Vehicle):boolean {
     if(this.vehicles.some(v=>v!==ignore&&Math.hypot(v.position.x-x,v.position.z-z)<5.5))return false;
@@ -143,7 +145,14 @@ export class VehicleSystem {
       const prev = v.position.clone();
       v.syncFromBody();
       const p = v.position;
-      if (p.y<3 && blocked(p.x, p.z)) {
+      const wet = p.y < 3 && blocked(p.x, p.z);
+      // Amphibious: the driven car (or one already floating) turns into a boat on water and back on land.
+      if (v.physics.boat && !wet) { v.physics.leaveBoat(); this.onBoatChange(v, false); continue; }
+      if (wet && !v.physics.flying && (v === this.driving || v.physics.boat)) {
+        if (!v.physics.boat) { v.physics.enterBoat(); this.onBoatChange(v, true); }
+        continue;
+      }
+      if (wet) {
         // Push back to the last dry position and kill velocity.
         const body = v.physics.body;
         body.setTranslation({ x: prev.x, y: Math.max(prev.y, p.y), z: prev.z }, true);

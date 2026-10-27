@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
+import { BoatLook } from './BoatLook';
 import { createVehicleModel, disposeVehicleModel, type VehicleVisual } from './VehicleModel';
 import { CAR, VehiclePhysics, WHEEL_LAYOUT, type DriveInput } from './VehiclePhysics';
 
@@ -13,6 +14,7 @@ export class Vehicle {
   private readonly prevQuat = new THREE.Quaternion();
   private readonly currQuat = new THREE.Quaternion();
   private readonly wheelSpin = [0, 0, 0, 0];
+  private readonly boatLook: BoatLook;
 
   constructor(
     world: PhysicsWorld,
@@ -24,6 +26,7 @@ export class Vehicle {
   ) {
     this.physics = new VehiclePhysics(world, x, z, yaw);
     this.visual = createVehicleModel(color,true);
+    this.boatLook = new BoatLook(this.visual, color);
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
@@ -73,6 +76,7 @@ export class Vehicle {
       this.wheelSpin[i]! -= (this.physics.forwardSpeed() / CAR.wheelRadius) * dt;
       w.spin.rotation.x = this.wheelSpin[i]!;
     }
+    this.boatLook.update(dt, this.physics.boat, this.physics.forwardSpeed());
     this.visual.brakeMat.emissiveIntensity = this.physics.braking ? 2.6 : this.headlightsOn ? 0.8 : 0.15;
     this.visual.headMat.emissiveIntensity = this.headlightsOn ? 2.5 : 0;
   }

@@ -42,6 +42,20 @@ export const CAR = {
   minSteer: 0.16, // rad at top speed
 } as const;
 
+/** Amphibious boat mode: the car floats and is driven by a water jet when it reaches the sea. */
+export const BOAT = {
+  /** Body origin height while floating (the hull dips below the water surface). */
+  floatY: GROUND_Y + 0.5,
+  topSpeed: 15, // m/s ≈ 54 km/h
+  boostSpeed: 21,
+  reverseSpeed: 4,
+  /** How quickly the jet reaches the target speed (1/s). */
+  accel: 0.75,
+  /** Sideways slip decays slowly, so turns drift like a boat. */
+  sideGrip: 1.4,
+  turnRate: 0.85, // rad/s at full steer and speed
+} as const;
+
 export const WHEEL_LAYOUT: Array<[number, number]> = [
   [-0.78, -1.33], // FL
   [0.78, -1.33], // FR
@@ -61,6 +75,10 @@ export class VehiclePhysics {
   throttle = 0;
   flying = false;
   landing = false;
+  /** Floating on water (amphibious mode). */
+  boat = false;
+  private boatYaw = 0;
+  private boatTime = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -118,6 +136,64 @@ export class VehiclePhysics {
     return v.x * fx + v.z * fz;
   }
 
+  /** Switches to floating on water; the wheels stop driving and a water jet takes over. */
+  enterBoat(): void {
+    if (this.boat || this.flying) return;
+    this.boat = true;
+    this.boatYaw = this.yaw();
+    this.body.setGravityScale(0, true);
+    const v = this.body.linvel();
+    // A splash-down slows the car.
+    this.body.setLinvel({ x: v.x * 0.6, y: 0, z: v.z * 0.6 }, true);
+    for (let i = 0; i < 4; i++) { this.controller.setWheelEngineForce(i, 0); this.controller.setWheelBrake(i, 0); }
+  }
+
+  /** Back on land: gravity and the wheels take over again. */
+  leaveBoat(): void {
+    if (!this.boat) return;
+    this.boat = false;
+    this.body.setGravityScale(1, true);
+    const p = this.body.translation();
+    this.body.setTranslation({ x: p.x, y: Math.max(p.y, GROUND_Y + CAR.suspensionRest + CAR.wheelRadius), z: p.z }, true);
+  }
+
+  private sail(input: DriveInput, dt: number, active: boolean): void {
+    this.boatTime += dt;
+    const v = this.body.linvel();
+    const fwd = this.forwardSpeed();
+    let target = 0;
+    this.braking = false;
+    if (active) {
+      if (input.throttle > 0) { target = (input.boost ? BOAT.boostSpeed : BOAT.topSpeed) * input.throttle; this.gear = 'D'; }
+      else if (input.brake > 0) { target = fwd > 1 ? 0 : -BOAT.reverseSpeed * input.brake; this.gear = fwd > 1 ? this.gear : 'R'; this.braking = fwd > 1; }
+      else this.gear = 'N';
+      this.throttle = input.throttle;
+    } else this.gear = 'P';
+    // Rudder works with water flow: little turning when stopped, reversed when going backwards.
+    const flow = Math.max(-1, Math.min(1, fwd / 5));
+    const steer = active ? input.steer : 0;
+    this.steer += (steer * 0.5 - this.steer) * Math.min(1, dt * 4);
+    this.boatYaw += steer * BOAT.turnRate * (Math.abs(flow) < 0.15 ? 0.15 * Math.sign(flow || 1) : flow) * dt;
+    const yaw = this.boatYaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    // Split velocity into forward and sideways parts; ease each toward its target.
+    const along = v.x * fx + v.z * fz;
+    const side = v.x * -fz + v.z * fx;
+    const newAlong = along + (target - along) * (1 - Math.exp(-dt * (target === 0 && active ? 1.6 : BOAT.accel)));
+    const newSide = side * Math.exp(-dt * BOAT.sideGrip);
+    const p = this.body.translation();
+    // Gentle swell; the bow lifts with speed and the hull leans into turns.
+    const bob = Math.sin(this.boatTime * 1.7) * 0.045 + Math.sin(this.boatTime * 2.9 + 1) * 0.02;
+    const vy = (BOAT.floatY + bob - p.y) * 4;
+    this.body.setLinvel({ x: fx * newAlong - fz * newSide, y: vy, z: fz * newAlong + fx * newSide }, true);
+    const speedT = Math.min(1, Math.abs(newAlong) / BOAT.topSpeed);
+    const pitch = 0.07 * speedT + Math.sin(this.boatTime * 1.3) * 0.015;
+    const roll = -steer * 0.09 * speedT + Math.sin(this.boatTime * 1.1 + 2) * 0.02;
+    const q = eulerYXZ(pitch, yaw, roll);
+    this.body.setRotation(q, true);
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
   toggleFlight(): void {
     if(this.flying){this.landing=!this.landing;return;}
     this.flying=true;this.landing=false;this.body.setGravityScale(0,true);
@@ -147,8 +223,9 @@ export class VehiclePhysics {
 
   /** Applies driver input; call once per fixed step before world.step(). */
   drive(input: DriveInput, dt: number, active: boolean): void {
-    if(active && input.lift && !this.flying)this.toggleFlight();
+    if(active && input.lift && !this.flying){this.leaveBoat();this.toggleFlight();}
     if(this.flying){this.fly(input,dt,active);return;}
+    if(this.boat){this.sail(input,dt,active);return;}
     const c = this.controller;
     const v = this.forwardSpeed();
     let engine = 0;
@@ -221,7 +298,7 @@ export class VehiclePhysics {
 
   /** Puts the car upright at (x, z) facing `yaw`, at rest. */
   reset(x: number, z: number, yaw: number): void {
-    this.flying=false;this.landing=false;this.body.setGravityScale(1,true);
+    this.flying=false;this.landing=false;this.boat=false;this.body.setGravityScale(1,true);
     const y = GROUND_Y + CAR.suspensionRest + CAR.wheelRadius + 0.3;
     this.body.setTranslation({ x, y, z }, true);
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
@@ -242,4 +319,17 @@ export class VehiclePhysics {
     this.physics.world.removeVehicleController(this.controller);
     this.physics.world.removeRigidBody(this.body);
   }
+}
+
+/** Quaternion for pitch (about X), then yaw (about Y), then roll (about Z), in YXZ order. */
+function eulerYXZ(pitch: number, yaw: number, roll: number): { x: number; y: number; z: number; w: number } {
+  const c1 = Math.cos(pitch / 2), s1 = Math.sin(pitch / 2);
+  const c2 = Math.cos(yaw / 2), s2 = Math.sin(yaw / 2);
+  const c3 = Math.cos(roll / 2), s3 = Math.sin(roll / 2);
+  return {
+    x: s1 * c2 * c3 + c1 * s2 * s3,
+    y: c1 * s2 * c3 - s1 * c2 * s3,
+    z: c1 * c2 * s3 - s1 * s2 * c3,
+    w: c1 * c2 * c3 + s1 * s2 * s3,
+  };
 }

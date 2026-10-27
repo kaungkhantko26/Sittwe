@@ -331,3 +331,17 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 .mm-landmark.pagoda { font-size: 16px; }
 .lm-marker.major { width: 18px; height: 18px; border-width: 3px; box-shadow: 0 0 0 3px rgba(245,184,75,0.35); }
 .lm-local { font-size: 18px; color: var(--accent); margin-top: 0; }
+
+/* Room players on the minimap, full map and room panel. */
+.mm-player { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 3; }
+.mm-player-dot { position: absolute; transform: translate(-50%, -50%); width: 16px; height: 16px; border-radius: 50%; background: var(--pc); border: 2px solid #fff; color: #10151a; font: 700 9px/12px system-ui, sans-serif; text-align: center; box-shadow: 0 0 6px rgba(0,0,0,.6); }
+.mm-player.in-car .mm-player-dot { border-radius: 4px; }
+.mm-player-arrow { display: none; position: absolute; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid var(--pc); filter: drop-shadow(0 0 2px #000); }
+.mm-player.outside .mm-player-dot { width: 13px; height: 13px; font-size: 8px; line-height: 9px; opacity: .9; }
+.mm-player.outside .mm-player-arrow { display: block; margin-top: 0; }
+.mm-player.outside .mm-player-arrow { transform-origin: 50% 50%; }
+.map-player { width: 24px; height: 24px; border-radius: 50%; background: var(--pc); border: 2px solid #fff; color: #10151a; font: 700 12px/20px system-ui, sans-serif; text-align: center; cursor: pointer; box-shadow: 0 0 8px rgba(0,0,0,.6); padding: 0; }
+.player-list { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; }
+.player-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.05); border-left: 4px solid var(--pc); }
+.player-row > .row { grid-column: 1 / -1; flex-wrap: wrap; }
+.player-name { font-weight: 600; }
