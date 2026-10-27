@@ -13,7 +13,7 @@ export class RideSeats {
   if(kind==='bicycle')return 'Bicycles only fit one rider.';
   const used=[...this.seats.values()].filter(s=>s.driverId===driverId);
   const seat=[1,2,3].slice(0,passengerSeats(kind)).find(n=>!used.some(s=>s.seat===n));
-  if(!seat)return kind==='motorbike'?'This motorbike already has a passenger.':'This car is full (three passenger seats).';
+  if(!seat)return kind==='motorbike'?'This motorbike already has a passenger.':kind==='tuktuk'?'This tuktuk is full (three on the bench).':'This car is full (three passenger seats).';
   this.seats.set(playerId,{playerId,driverId,vehicleId:driver.vehicle.id??0,seat});return null;
  }
  reconcile(players:RoomPlayer[]):void {
@@ -22,8 +22,8 @@ export class RideSeats {
   }
  }
 }
-/** Passenger seats per vehicle: three in a car, one on the back of a motorbike. */
-export function passengerSeats(kind:'car'|'motorbike'|'bicycle'):number{return kind==='car'?3:kind==='motorbike'?1:0}
+/** Passenger seats per vehicle: three in a car or on a tuktuk's bench, one on the back of a motorbike. */
+export function passengerSeats(kind:'car'|'motorbike'|'bicycle'|'tuktuk'):number{return kind==='car'||kind==='tuktuk'?3:kind==='motorbike'?1:0}
 export function validRideSeats(raw:unknown):raw is RideSeat[] {
  return Array.isArray(raw)&&raw.length<=7&&raw.every(s=>s&&typeof s.playerId==='string'&&s.playerId.length<100&&typeof s.driverId==='string'&&s.driverId.length<100&&s.playerId!==s.driverId&&Number.isSafeInteger(s.vehicleId)&&s.vehicleId>=0&&[1,2,3].includes(s.seat))&&new Set(raw.map(s=>s.playerId)).size===raw.length&&new Set(raw.map(s=>s.driverId+':'+s.seat)).size===raw.length;
 }

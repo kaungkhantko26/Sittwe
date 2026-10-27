@@ -18,6 +18,8 @@ export interface VehicleVisual {
   crank?: THREE.Group;
   /** Seat top in body space, for placing the rider. */
   seat?: THREE.Vector3;
+  /** Rotor pods that fold out of the body only while flying (flying tuktuk). */
+  pods?: THREE.Object3D[];
   /** Motorbike exhaust pipe tip (smoke comes out here). */
   exhaust?: THREE.Object3D;
 }
@@ -137,21 +139,24 @@ export function createVehicleModel(color: number, flying = false): VehicleVisual
   // Mirrors.
   for (const sx of [-0.95, 0.95]) add(new THREE.BoxGeometry(0.12, 0.1, 0.18), paint, sx, 0.98, -0.55);
 
-  const rotors:THREE.Group[]=[],thrusts:THREE.Mesh[]=[];
+  const rotors:THREE.Group[]=[],thrusts:THREE.Mesh[]=[],pods:THREE.Object3D[]=[];
   const thrustMat=flying?new THREE.MeshStandardMaterial({color:0x4ed9ff,emissive:0x0c9eff,emissiveIntensity:2,transparent:true,opacity:.8}):null;
   if(flying) {
+    // Rotor pods fold out from the body sides only while flying (see deployPods).
     for(const sx of [-1,1]) for(const z of [-1.4,1.4]) {
-      const x=sx*2.05;
-      add(new THREE.BoxGeometry(1.1,.13,.22),dark,sx*1.4,.65,z);
-      add(new THREE.CylinderGeometry(.44,.4,.25,16),dark,x,.65,z);
-      const ring=add(new THREE.TorusGeometry(.43,.035,6,18),thrustMat!,x,.72,z);ring.rotation.x=Math.PI/2;
-      const hub=add(new THREE.CylinderGeometry(.13,.13,.2,10),chrome,x,.85,z);
-      hub.name='rotor-hub';
-      const fan=new THREE.Group();fan.position.set(x,.87-MODEL_GROUND_OFFSET,z);
+      const pod=new THREE.Group();pod.position.set(sx*.85,.65-MODEL_GROUND_OFFSET,z);
+      const part=(geo:THREE.BufferGeometry,m:THREE.Material,x:number,y:number)=>{const mesh=new THREE.Mesh(geo,m);mesh.position.set(x,y,0);mesh.castShadow=true;pod.add(mesh);return mesh;};
+      const x=sx*1.2;
+      part(new THREE.BoxGeometry(1.1,.13,.22),dark,sx*.55,0);
+      part(new THREE.CylinderGeometry(.44,.4,.25,16),dark,x,0);
+      const ring=part(new THREE.TorusGeometry(.43,.035,6,18),thrustMat!,x,.07);ring.rotation.x=Math.PI/2;
+      part(new THREE.CylinderGeometry(.13,.13,.2,10),chrome,x,.2).name='rotor-hub';
+      const fan=new THREE.Group();fan.position.set(x,.22,0);
       for(const angle of [0,Math.PI/2]){const blade=new THREE.Mesh(new THREE.BoxGeometry(.67,.025,.07),chrome);blade.rotation.y=angle;fan.add(blade)}
-      root.add(fan);rotors.push(fan);
+      pod.add(fan);rotors.push(fan);
       const glowMat=thrustMat!.clone();glowMat.opacity=.25;glowMat.depthWrite=false;
-      const glow=new THREE.Mesh(new THREE.ConeGeometry(.24,.65,10),glowMat);glow.position.set(x,.17-MODEL_GROUND_OFFSET,z);glow.rotation.x=Math.PI;glow.visible=false;root.add(glow);thrusts.push(glow);
+      const glow=new THREE.Mesh(new THREE.ConeGeometry(.24,.65,10),glowMat);glow.position.set(x,-.48,0);glow.rotation.x=Math.PI;glow.visible=false;pod.add(glow);thrusts.push(glow);
+      pod.scale.setScalar(.001);pod.visible=false;root.add(pod);pods.push(pod);
     }
     add(new THREE.BoxGeometry(.85,.035,.04),thrustMat!,0,.37,-2.27);
     add(new THREE.BoxGeometry(1.1,.035,.04),brakeMat,0,.7,2.21);
@@ -177,7 +182,7 @@ export function createVehicleModel(color: number, flying = false): VehicleVisual
     wheels.push({ pivot, spin });
   }
 
-  return { root, wheels, brakeMat, headMat, rotors, thrustMat, thrusts };
+  return { root, wheels, brakeMat, headMat, rotors, thrustMat, thrusts, ...(pods.length ? { pods } : {}) };
 }
 
 export { WHEEL_RADIUS };
@@ -241,11 +246,140 @@ function bikeWheel(radius: number, tyre: number, rimMat: THREE.Material, spokes:
   return { pivot, spin };
 }
 
+/** Ground level in a tuktuk's body space (wheelY - suspension rest - wheel radius). */
+export const TUKTUK_GROUND = -0.37;
+/** Tuktuk passenger bench seat tops in body space, left to right (seat 1..3). */
+export const TUKTUK_BENCH: Array<[number, number, number]> = [[-0.36, TUKTUK_GROUND + 0.95, 0.5], [0, TUKTUK_GROUND + 0.95, 0.5], [0.36, TUKTUK_GROUND + 0.95, 0.5]];
+
+/**
+ * Auto-rickshaw (tuktuk), as seen on Sittwe's streets: painted body, dark
+ * canvas canopy, front cowl with one headlight, handlebar steering, driver
+ * up front and a bench for three behind. Faces -Z; one front wheel (entry 0;
+ * entry 1 is an empty placeholder) and two rear wheels.
+ */
+export function createTuktukModel(color: number): VehicleVisual {
+  const root = new THREE.Group();
+  root.name = 'tuktuk';
+  const shell = new THREE.Group();
+  shell.position.y = TUKTUK_GROUND;
+  root.add(shell);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.25 });
+  const canopy = new THREE.MeshStandardMaterial({ color: 0x3a3330, roughness: 0.95 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1e2022, roughness: 0.75 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xc9cdd1, roughness: 0.25, metalness: 0.9 });
+  const seatMat = new THREE.MeshStandardMaterial({ color: 0x4a2f25, roughness: 0.8 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xbfd8e6, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xf6f3e8, emissive: new THREE.Color(0xfff2c8), emissiveIntensity: 0 });
+  const brakeMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, emissive: new THREE.Color(0xff2020), emissiveIntensity: 0.15 });
+  const amber = new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a00, emissiveIntensity: 0.4 });
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, rx = 0) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    b.position.set(x, y, z);
+    b.rotation.x = rx;
+    b.castShadow = true;
+    shell.add(b);
+    return b;
+  };
+  // Floor and the enclosed rear body over the engine and back wheels.
+  box(1.16, 0.1, 2.1, dark, 0, 0.36, 0.05);
+  box(1.28, 0.42, 0.95, paint, 0, 0.6, 0.72);
+  box(1.3, 0.1, 0.98, paint, 0, 0.84, 0.72); // rounded-looking top edge
+  box(1.0, 0.36, 0.06, paint, 0, 0.6, -0.2); // step in front of the bench
+  // Front cowl, mudguard and the single headlight.
+  box(0.62, 0.95, 0.32, paint, 0, 0.88, -0.92, -0.12);
+  box(1.02, 0.42, 0.22, paint, 0, 0.62, -0.78);
+  box(0.26, 0.07, 0.5, paint, 0, 0.5, -1.04);
+  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.095, 0.08, 14).rotateX(Math.PI / 2), headMat);
+  lamp.position.set(0, 1.0, -1.1);
+  shell.add(lamp);
+  for (const sx of [-1, 1]) box(0.06, 0.05, 0.03, amber, sx * 0.24, 1.16, -1.06);
+  // Windscreen, front pillars and mirrors.
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.56, 0.025), glass);
+  screen.scale.y = 1.25;
+  screen.position.set(0, 1.6, -0.85);
+  screen.rotation.x = 0.12;
+  shell.add(screen);
+  for (const sx of [-1, 1]) {
+    shell.add(tube(V(sx * 0.6, 1.0, -0.8), V(sx * 0.6, 2.0, -0.88), 0.025, dark));
+    shell.add(tube(V(sx * 0.62, 0.9, 1.16), V(sx * 0.62, 2.0, 1.16), 0.025, dark));
+    shell.add(tube(V(sx * 0.52, 1.38, -0.86), V(sx * 0.72, 1.46, -0.92), 0.012, dark));
+    box(0.1, 0.08, 0.02, chrome, sx * 0.74, 1.48, -0.92);
+  }
+  // Canvas canopy: roof, back and the rear side panels (the sides are open).
+  box(1.34, 0.08, 2.14, canopy, 0, 2.04, 0.14);
+  box(1.2, 0.08, 1.92, canopy, 0, 2.1, 0.16);
+  box(1.3, 1.1, 0.04, canopy, 0, 1.48, 1.2);
+  for (const sx of [-1, 1]) box(0.04, 1.1, 0.46, canopy, sx * 0.64, 1.48, 0.96);
+  // Driver's seat, handlebar and the passenger bench with a backrest.
+  box(0.46, 0.1, 0.36, seatMat, 0, 0.88, -0.34);
+  box(0.3, 0.42, 0.3, dark, 0, 0.62, -0.34);
+  shell.add(tube(V(0, 0.95, -0.82), V(0, 1.2, -0.7), 0.03, dark), tube(V(-0.32, 1.22, -0.68), V(0.32, 1.22, -0.68), 0.022, chrome));
+  box(1.14, 0.12, 0.44, seatMat, 0, 0.9, 0.5);
+  box(1.14, 0.46, 0.1, seatMat, 0, 1.18, 0.76);
+  // Rear lamps and the exhaust under the back.
+  for (const sx of [-1, 1]) box(0.14, 0.08, 0.03, brakeMat, sx * 0.5, 0.78, 1.21);
+  shell.add(tube(V(0.4, 0.3, 0.7), V(0.42, 0.3, 1.24), 0.035, chrome));
+  const exhaust = new THREE.Object3D();
+  exhaust.name = 'exhaust';
+  exhaust.position.set(0.42, 0.3, 1.27);
+  shell.add(exhaust);
+  // Wheels: one in front, two behind.
+  const r = 0.22;
+  const front = bikeWheel(r, 0.07, chrome, 4);
+  const rl = bikeWheel(r, 0.07, chrome, 4);
+  const rr = bikeWheel(r, 0.07, chrome, 4);
+  front.pivot.position.set(0, r + TUKTUK_GROUND, -1.0);
+  rl.pivot.position.set(-0.56, r + TUKTUK_GROUND, 0.82);
+  rr.pivot.position.set(0.56, r + TUKTUK_GROUND, 0.82);
+  root.add(front.pivot, rl.pivot, rr.pivot);
+  // Flying kit: four rotor pods fold out from the roof corners when it takes off.
+  const thrustMat = new THREE.MeshStandardMaterial({ color: 0x4ed9ff, emissive: 0x0c9eff, emissiveIntensity: 0.6, transparent: true, opacity: 0.8 });
+  const rotors: THREE.Group[] = [], thrusts: THREE.Mesh[] = [], pods: THREE.Object3D[] = [];
+  for (const sx of [-1, 1]) for (const z of [-0.7, 1.0]) {
+    const pod = new THREE.Group();
+    pod.position.set(sx * 0.62, 2.04 + TUKTUK_GROUND, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.12), dark);
+    arm.position.x = sx * 0.25;
+    const duct = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.31, 0.14, 16, 1, true), dark);
+    duct.position.x = sx * 0.62;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.025, 6, 18).rotateX(Math.PI / 2), thrustMat);
+    ring.position.set(sx * 0.62, 0.06, 0);
+    const fan = new THREE.Group();
+    fan.position.set(sx * 0.62, 0.02, 0);
+    for (const a of [0, Math.PI / 2]) { const blade = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.02, 0.06), chrome); blade.rotation.y = a; fan.add(blade); }
+    fan.add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 8), chrome));
+    const glowMat = thrustMat.clone();
+    glowMat.opacity = 0.25;
+    glowMat.depthWrite = false;
+    const glow = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.55, 10), glowMat);
+    glow.position.set(sx * 0.62, -0.36, 0);
+    glow.rotation.x = Math.PI;
+    glow.visible = false;
+    pod.add(arm, duct, ring, fan, glow);
+    pod.scale.setScalar(0.001);
+    root.add(pod);
+    rotors.push(fan);
+    thrusts.push(glow);
+    pods.push(pod);
+  }
+  const empty = { pivot: new THREE.Group(), spin: new THREE.Group() };
+  return { root, wheels: [front, empty, rl, rr], brakeMat, headMat, rotors, thrustMat, thrusts, pods, exhaust, seat: V(0, 0.93 + TUKTUK_GROUND, -0.34) };
+}
+
 /**
  * Motorbike (underbone, the common 110 cc type in Myanmar) or bicycle, built
  * from primitives. Faces -Z; same VehicleVisual shape as cars, with two real
  * wheels (entries 1 and 3 are empty placeholders for the right-hand pair).
  */
+/** Folds rotor pods out while flying and back in after landing (eased). */
+export function deployPods(visual: VehicleVisual, flying: boolean, dt: number): void {
+  if (!visual.pods) return;
+  const ud = visual.root.userData as { deploy?: number };
+  const d = (ud.deploy = (ud.deploy ?? 0) + ((flying ? 1 : 0) - (ud.deploy ?? 0)) * Math.min(1, dt * 3));
+  for (const p of visual.pods) { p.scale.setScalar(Math.max(0.001, d)); p.visible = d > 0.01; }
+}
+
 export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: number): VehicleVisual {
   const root = new THREE.Group();
   root.name = kind;

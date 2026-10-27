@@ -7,7 +7,7 @@ import { DayNightCycle } from '../lighting/DayNightCycle';
 import { LightingManager } from '../lighting/LightingManager';
 import { Weather } from '../lighting/Weather';
 import { BikeFx, type ExhaustSource } from '../vehicles/BikeFx';
-import { seatPillion } from '../vehicles/Rider';
+import { seatPassenger } from '../vehicles/Rider';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { PlayerController, type PlayerInput } from '../player/PlayerController';
 import { ThirdPersonCamera, type CameraMode, type VehicleCameraMode } from '../player/ThirdPersonCamera';
@@ -103,6 +103,8 @@ export class Game {
   private lighting!: LightingManager;
   private weather!: Weather;
   private bikeFx!: BikeFx;
+  /** When Space went down on a bike: a quick tap jumps, holding it does a wheelie. */
+  private spaceAt = 0;
   private readonly exhaustList: ExhaustSource[] = [];
   private player!: PlayerController;
   private vehicles!: VehicleSystem;
@@ -672,7 +674,7 @@ export class Game {
       rooms: this.rooms,
       players: () => {
         const p = this.focusPoint();
-        const me = { id: this.rooms.selfId ?? 'me', name: this.settings.get().playerName || 'You', x: p.x, z: p.z };
+        const me = { id: this.rooms.selfId ?? 'me', name: this.settings.get().playerName || 'You', x: p.x, z: p.z, ride: this.vehicles.driving?.kind ?? null };
         return this.rooms.active ? [me, ...this.remotePlayers.list()] : [me];
       },
       hours: () => this.cycle.hours,
@@ -697,6 +699,8 @@ export class Game {
     this.missionTracker = new MissionTracker(this.hud.root, this.missions, () => {
       const s = this.missions.tracker();
       if (!s) return;
+      const race = this.missions.race();
+      if (race?.next) { this.setDestination(race.next); return; }
       const st = this.missions.state;
       const step = st.id ? missionById(st.id)?.steps[st.step] : undefined;
       const at = step ? (step.place === 'home' ? this.housing.home : byId.get(step.place)) : undefined;
@@ -846,7 +850,7 @@ export class Game {
     const inp = this.input;
     const driving = this.vehicles.driving;
     const drive: DriveInput = driving
-      ? { throttle: Math.max(inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0,-inp.touchMove.y), brake: Math.max(inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0,inp.touchMove.y), steer: inp.axis('KeyD', 'KeyA') + inp.axis('ArrowRight', 'ArrowLeft') - inp.touchMove.x, handbrake: inp.isDown('KeyX'), lift:inp.isDown('Space'), descend:inp.isDown('ControlLeft')||inp.isDown('ControlRight'), boost:inp.isDown('ShiftLeft')||inp.isDown('ShiftRight') }
+      ? { throttle: Math.max(inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0,-inp.touchMove.y), brake: Math.max(inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0,inp.touchMove.y), steer: inp.axis('KeyD', 'KeyA') + inp.axis('ArrowRight', 'ArrowLeft') - inp.touchMove.x, handbrake: inp.isDown('KeyX'), lift:inp.isDown('Space')&&!(driving.physics.spec.twoWheeler&&performance.now()-this.spaceAt<200), descend:inp.isDown('ControlLeft')||inp.isDown('ControlRight'), boost:inp.isDown('ShiftLeft')||inp.isDown('ShiftRight') }
       : { throttle: 0, brake: 0, steer: 0, handbrake: false };
     drive.steer = Math.max(-1, Math.min(1, drive.steer));
     this.vehicles.fixedUpdate(dt, drive);
@@ -899,12 +903,10 @@ export class Game {
       seatRider(this.player.rig, ridden.visual, ridden.kind, this.pedal, ridden.wheelie);
     }
     if (this.traffic) this.traffic.update(dt, this.cycle.compute().night > 0.4);
-    // Passenger on a friend's motorbike: sit on the back seat, in view.
-    const pillionBike = this.riding && this.rooms?.ride ? this.remotePlayers.vehicleRoot(this.rooms.ride.driverId) : null;
-    if (pillionBike?.name === 'motorbike') {
-      this.player.rig.root.visible = true;
-      seatPillion(this.player.rig, pillionBike);
-    } else if (this.riding) this.player.rig.root.visible = false;
+    // Passenger on a friend's motorbike or tuktuk: sit in view (back seat or bench).
+    const rideOn = this.riding && this.rooms?.ride ? this.remotePlayers.vehicleRoot(this.rooms.ride.driverId) : null;
+    if (rideOn && seatPassenger(this.player.rig, rideOn, this.rooms.ride!.seat)) this.player.rig.root.visible = true;
+    else if (this.riding) this.player.rig.root.visible = false;
 
     const menuLike = this.state === 'menu' || this.state === 'boot' || (this.state === 'map' && this.mapReturn === 'menu');
     const spawn = this.manifest?.spawn.player ?? { x: 0, z: 0 };
@@ -1002,6 +1004,7 @@ export class Game {
       this.campfire.update(dt, this.cycle.compute().night, Math.hypot(focus.x - this.campfire.x, focus.z - this.campfire.z));
       const selfId = this.rooms.selfId ?? 'me';
       this.missionVisuals.update(dt, this.missions.state, selfId, (id) => (id === selfId ? this.player.rig.root.position : this.remotePlayers.positionOf(id)));
+      this.missionVisuals.race(this.missions.race(), this.focusPoint().y - 1);
       this.remotePlayers.hideTags = MissionVisuals.hidingFrom(this.missions.state, selfId);
       this.festivalFx.update(dt, { night: this.cycle.compute().night, festival: this.missions.festival, px: focus.x, pz: focus.z, sites: this.world.pagodaSites(), camera: this.camera });
       this.trackerTimer -= dt;
@@ -1019,6 +1022,14 @@ export class Game {
   private handleActions(): void {
     const inp = this.input;
     const driving = this.vehicles.driving;
+    // Bikes: tap Space to jump, hold it for a wheelie.
+    if (driving?.physics.spec.twoWheeler) {
+      if (inp.wasPressed('Space')) this.spaceAt = performance.now();
+      if (this.spaceAt && !inp.isDown('Space')) {
+        if (performance.now() - this.spaceAt < 220) driving.physics.jump();
+        this.spaceAt = 0;
+      }
+    }
     if(this.riding){
       if(inp.wasPressed('KeyF')){const pose=this.rooms.ride&&this.remotePlayers.ridePose(this.rooms.ride.driverId);if(pose&&(pose.state.vehicle?.flying||pose.state.speed>2))this.hud.toast('Ask the driver to stop and land before leaving',3);else this.rooms.leaveRide();}
       if(inp.wasPressed('KeyC'))this.cam.cycleMode(true);
@@ -1046,6 +1057,7 @@ export class Game {
     if (inp.wasPressed('KeyV') && !driving) this.spawnCarNearby('car');
     if (inp.wasPressed('KeyB') && !driving) this.spawnCarNearby('motorbike');
     if (inp.wasPressed('KeyN') && !driving) this.spawnCarNearby('bicycle');
+    if (inp.wasPressed('KeyT') && !driving) this.spawnCarNearby('tuktuk');
     // Si Mee (ဆီမီး) oil-lamp dance — performed by the Rakhine Girl.
     if (inp.wasPressed('KeyJ') && !driving) {
       if (this.player.anim.dancing) this.stopDance();
@@ -1059,7 +1071,7 @@ export class Game {
     }
     if (this.player.anim.dancing && (inp.isDown('KeyW') || inp.isDown('KeyA') || inp.isDown('KeyS') || inp.isDown('KeyD') || inp.isDown('Space') || Math.hypot(inp.touchMove.x,inp.touchMove.y)>.2)) this.stopDance();
     if (inp.wasPressed('KeyC')) this.hud.toast(`${t('cameraMode')}: ${this.cam.cycleMode(!!driving)}`, 1.2);
-    if(inp.wasPressed('KeyG') && driving && driving.physics.spec.amphibious){driving.physics.toggleFlight();this.hud.toast(driving.physics.landing?'Landing — keep clear of buildings':driving.physics.flying?'Flight: Space up · Ctrl down · WASD steer · G land':'Ground drive',3);}
+    if(inp.wasPressed('KeyG') && driving && driving.physics.canFly){driving.physics.toggleFlight();this.hud.toast(driving.physics.landing?'Landing — keep clear of buildings':driving.physics.flying?'Flight: Space up · Ctrl down · WASD steer · G land':'Ground drive',3);}
     if (inp.wasPressed('KeyL') && driving) this.vehicles.toggleHeadlights();
     if (inp.wasPressed('KeyR') && driving) {
       this.vehicles.resetDriven();
@@ -1127,9 +1139,9 @@ export class Game {
     if(!spot){this.hud.toast('No clear parking space nearby. Move along the road and try V again.',3);return;}
     const extras = this.vehicles.vehicles.slice(this.vehicles.baseCount).filter((v) => v !== this.vehicles.driving);
     if (extras.length >= 4) this.vehicles.remove(extras[0]!);
-    const palette = kind === 'motorbike' ? [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0] : kind === 'bicycle' ? [0x2f7d4f, 0x1d3f7a, 0x222428, 0xc23b3b] : [0xf1f3f4];
+    const palette = kind === 'tuktuk' ? [0xf2b705, 0xf2b705, 0xe8a317, 0x2f8f4e] : kind === 'motorbike' ? [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0] : kind === 'bicycle' ? [0x2f7d4f, 0x1d3f7a, 0x222428, 0xc23b3b] : [0xf1f3f4];
     this.vehicles.spawnAt(spot.x, spot.z, yaw, palette[Math.floor(Math.random() * palette.length)]!, kind);
-    this.hud.toast(kind === 'motorbike' ? '🏍️ Motorbike spawned nearby — press F to ride · hold Space for a wheelie' : kind === 'bicycle' ? '🚲 Bicycle spawned nearby — press F to ride' : '🚗 Car spawned nearby — press F to drive', 2);
+    this.hud.toast(kind === 'tuktuk' ? '🛺 Tuktuk spawned nearby — press F to drive · Space or G to fly · friends ride on the bench' : kind === 'motorbike' ? '🏍️ Motorbike spawned nearby — press F to ride · hold Space for a wheelie' : kind === 'bicycle' ? '🚲 Bicycle spawned nearby — press F to ride' : '🚗 Car spawned nearby — press F to drive', 2);
   }
 
   // ---------------------------------------------------------------------------

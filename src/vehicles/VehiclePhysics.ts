@@ -65,7 +65,7 @@ export const WHEEL_LAYOUT: Array<[number, number]> = [
 
 export type Gear = 'P' | 'D' | 'R' | 'N';
 
-export type VehicleKind = 'car' | 'motorbike' | 'bicycle';
+export type VehicleKind = 'car' | 'motorbike' | 'bicycle' | 'tuktuk';
 
 /** Size, mass, power and handling of one kind of vehicle. */
 export interface VehicleSpec {
@@ -90,6 +90,10 @@ export interface VehicleSpec {
   amphibious: boolean;
   /** Kept upright by the rider; leans visually instead of rolling. */
   twoWheeler: boolean;
+  /** Three-wheeler: one front wheel (layout entries 0 and 1 share it); kept from tipping over. */
+  threeWheeler?: boolean;
+  /** Can take off and fly (cars do as part of amphibious mode). */
+  canFly?: boolean;
 }
 
 export const SPECS: Record<VehicleKind, VehicleSpec> = {
@@ -99,6 +103,12 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     kind: 'motorbike', mass: 230, halfExtents: { x: 0.32, y: 0.36, z: 0.95 }, wheelRadius: 0.3, suspensionRest: 0.26, wheelY: 0.05,
     maxEngineForce: 520, maxReverseSpeed: 2.5, topSpeed: 21, brakeForce: 7, handbrakeForce: 12, maxSteer: 0.55, minSteer: 0.12,
     layout: [[-0.13, -0.66], [0.13, -0.66], [-0.13, 0.64], [0.13, 0.64]], inertia: { x: 70, y: 60, z: 28 }, colliderY: 0.3, amphibious: false, twoWheeler: true,
+  },
+  // Auto-rickshaw (tuktuk / three-wheeler), ~420 kg with driver: one front wheel, two at the back.
+  tuktuk: {
+    kind: 'tuktuk', mass: 420, halfExtents: { x: 0.62, y: 0.85, z: 1.25 }, wheelRadius: 0.22, suspensionRest: 0.2, wheelY: 0.05,
+    maxEngineForce: 1150, maxReverseSpeed: 3, topSpeed: 15, brakeForce: 10, handbrakeForce: 16, maxSteer: 0.5, minSteer: 0.14,
+    layout: [[-0.05, -1.0], [0.05, -1.0], [-0.56, 0.82], [0.56, 0.82]], inertia: { x: 320, y: 300, z: 140 }, colliderY: 0.68, amphibious: false, twoWheeler: false, threeWheeler: true, canFly: true,
   },
   // City bicycle with rider, ~90 kg, pedalled.
   bicycle: {
@@ -151,14 +161,15 @@ export class VehiclePhysics {
     this.collider = physics.world.createCollider(
       R.ColliderDesc.cuboid(he.x, he.y, he.z)
         .setTranslation(0, S.colliderY, 0)
-        .setMassProperties(S.mass, { x: 0, y: S.twoWheeler ? -0.2 : -0.15, z: 0 }, S.inertia, { x: 0, y: 0, z: 0, w: 1 })
+        .setMassProperties(S.mass, { x: 0, y: S.twoWheeler ? -0.2 : S.threeWheeler ? -0.35 : -0.15, z: 0 }, S.inertia, { x: 0, y: 0, z: 0, w: 1 })
         .setFriction(0.4)
         .setRestitution(0.05)
         .setCollisionGroups(Groups.vehicle),
       this.body,
     );
     // Rotor pods are physical too, so the wide flying design cannot pass through walls or cars.
-    if(S.amphibious)for(const x of [-2.05,2.05])for(const z of [-1.4,1.4])physics.world.createCollider(R.ColliderDesc.ball(.43).setTranslation(x,.1,z).setDensity(0).setCollisionGroups(Groups.vehicle),this.body);
+    // They fold away on land, so their colliders are only on while flying.
+    if(S.amphibious)for(const x of [-2.05,2.05])for(const z of [-1.4,1.4]){const c=physics.world.createCollider(R.ColliderDesc.ball(.43).setTranslation(x,.1,z).setDensity(0).setCollisionGroups(Groups.vehicle),this.body);c.setEnabled(false);this.podColliders.push(c);}
     this.controller = physics.world.createVehicleController(this.body);
     this.controller.indexUpAxis = 1;
     this.controller.setIndexForwardAxis = 2;
@@ -242,6 +253,11 @@ export class VehiclePhysics {
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
+  /** Flying cars and flying tuktuks. */
+  get canFly(): boolean {
+    return this.spec.amphibious || !!this.spec.canFly;
+  }
+
   toggleFlight(): void {
     if(this.flying){this.landing=!this.landing;return;}
     this.flying=true;this.landing=false;this.body.setGravityScale(0,true);
@@ -271,7 +287,8 @@ export class VehiclePhysics {
 
   /** Applies driver input; call once per fixed step before world.step(). */
   drive(input: DriveInput, dt: number, active: boolean): void {
-    if(active && input.lift && !this.flying && this.spec.amphibious){this.leaveBoat();this.toggleFlight();}
+    if (this.podsOn !== this.flying) { this.podsOn = this.flying; for (const c of this.podColliders) c.setEnabled(this.flying); }
+    if(active && input.lift && !this.flying && this.canFly){if(this.spec.amphibious)this.leaveBoat();this.toggleFlight();}
     if(this.flying){this.fly(input,dt,active);return;}
     if(this.boat){this.sail(input,dt,active);return;}
     const c = this.controller;
@@ -331,7 +348,7 @@ export class VehiclePhysics {
     }
     if (active && input.handbrake) this.braking = true;
     c.updateVehicle(dt, this.physics.R.QueryFilterFlags.EXCLUDE_DYNAMIC | this.physics.R.QueryFilterFlags.EXCLUDE_KINEMATIC, Groups.wheelRay);
-    if (this.spec.twoWheeler) this.keepUpright();
+    if (this.spec.twoWheeler || this.spec.threeWheeler) this.keepUpright();
   }
 
   /** Two-wheelers: the rider balances, so roll is removed (the model leans visually instead). */
@@ -342,6 +359,33 @@ export class VehiclePhysics {
     this.body.setRotation(eulerYXZ(pitch, this.yaw(), 0), true);
     const av = this.body.angvel();
     this.body.setAngvel({ x: 0, y: av.y, z: 0 }, true);
+  }
+
+  private lastJump = 0;
+  private readonly podColliders: RAPIER.Collider[] = [];
+  private podsOn = false;
+
+  /**
+   * Two-wheelers: hop into the air when a wheel touches the ground (bunny hop
+   * on a bicycle, a proper jump on a motorbike). Returns true when it jumped.
+   */
+  jump(): boolean {
+    if (!this.spec.twoWheeler || this.flying || this.boat) return false;
+    const now = performance.now();
+    if (now - this.lastJump < 450) return false;
+    let ground = false;
+    for (let i = 0; i < this.controller.numWheels(); i++) if (this.controller.wheelIsInContact(i)) ground = true;
+    if (!ground) return false;
+    this.lastJump = now;
+    const v = this.body.linvel();
+    this.body.setLinvel({ x: v.x, y: Math.max(0, v.y) + (this.spec.kind === 'bicycle' ? 3.6 : 5.4), z: v.z }, true);
+    return true;
+  }
+
+  /** True while no wheel touches the ground. */
+  get airborne(): boolean {
+    for (let i = 0; i < this.controller.numWheels(); i++) if (this.controller.wheelIsInContact(i)) return false;
+    return true;
   }
 
   get steering(): number {

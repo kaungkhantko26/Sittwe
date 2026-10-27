@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import { BoatLook } from './BoatLook';
-import { createTwoWheelerModel, createVehicleModel, disposeVehicleModel, liftFrontWheel, type VehicleVisual } from './VehicleModel';
+import { deployPods, createTuktukModel, createTwoWheelerModel, createVehicleModel, disposeVehicleModel, liftFrontWheel, type VehicleVisual } from './VehicleModel';
 import { VehiclePhysics, type DriveInput, type VehicleKind } from './VehiclePhysics';
 
 /** A drivable car: physics + visuals + light state, with render interpolation. */
@@ -35,7 +35,7 @@ export class Vehicle {
     readonly kind: VehicleKind = 'car',
   ) {
     this.physics = new VehiclePhysics(world, x, z, yaw, kind);
-    this.visual = kind === 'car' ? createVehicleModel(color, true) : createTwoWheelerModel(kind, color);
+    this.visual = kind === 'car' ? createVehicleModel(color, true) : kind === 'tuktuk' ? createTuktukModel(color) : createTwoWheelerModel(kind, color);
     this.boatLook = new BoatLook(this.visual, color);
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
@@ -74,6 +74,7 @@ export class Vehicle {
     const root = this.visual.root;
     root.position.lerpVectors(this.prevPos, this.currPos, alpha);
     root.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
+    deployPods(this.visual, this.physics.flying, dt);
     for(const thrust of this.visual.thrusts)thrust.visible=this.physics.flying;
     for(const rotor of this.visual.rotors)rotor.rotation.y+=dt*(this.physics.flying?75:12);
     if(this.visual.thrustMat)this.visual.thrustMat.emissiveIntensity=this.physics.flying?3:.6;
@@ -84,7 +85,7 @@ export class Vehicle {
       const w = this.visual.wheels[i]!;
       const susp = c.wheelSuspensionLength(i) ?? S.suspensionRest;
       // Wheel centre in body space: connection point minus suspension length (down).
-      w.pivot.position.set(S.twoWheeler ? 0 : S.layout[i]![0], S.wheelY - susp, S.layout[i]![1]);
+      w.pivot.position.set(S.twoWheeler || (S.threeWheeler && i < 2) ? 0 : S.layout[i]![0], S.wheelY - susp, S.layout[i]![1]);
       w.pivot.rotation.y = i < 2 ? (c.wheelSteering(i) ?? 0) : 0;
       // Spin from forward speed (visual only).
       this.wheelSpin[i]! -= (speed / S.wheelRadius) * dt;
@@ -99,9 +100,11 @@ export class Vehicle {
       const up = this.wantWheelie && speed > 1.5;
       this.wheelieT += dt;
       const max = this.kind === 'bicycle' ? 0.38 : 0.5;
-      const lift = up ? max * Math.min(1, (speed - 1.5) / 4) + Math.sin(this.wheelieT * 4.3) * 0.035 : 0;
-      this.wheelie = Math.max(0, this.wheelie + (lift - this.wheelie) * Math.min(1, dt * (up ? 2.5 : 6)));
-      if (this.kind !== 'car') liftFrontWheel(root, this.kind, this.wheelie);
+      // In the air after a jump the nose rises a little.
+      const air = this.physics.airborne ? 0.14 : 0;
+      const lift = (up ? max * Math.min(1, (speed - 1.5) / 4) + Math.sin(this.wheelieT * 4.3) * 0.035 : 0) + air;
+      this.wheelie = Math.max(0, this.wheelie + (lift - this.wheelie) * Math.min(1, dt * (up || this.physics.airborne ? 2.5 : 6)));
+      if (this.kind === 'motorbike' || this.kind === 'bicycle') liftFrontWheel(root, this.kind, this.wheelie);
       if (this.visual.crank && this.physics.throttle > 0) this.visual.crank.rotation.x -= dt * (2 + Math.abs(speed) * 1.4);
     }
     this.boatLook.update(dt, this.physics.boat, this.physics.forwardSpeed());

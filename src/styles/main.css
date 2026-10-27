@@ -375,3 +375,13 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 .seek-blindfold { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: radial-gradient(circle, rgba(8,10,14,.96), rgba(0,0,0,.99)); color: #f5c24b; font-size: 34px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }
 .seek-blindfold.hidden { display: none; }
 .tag.friends { background: rgba(110,170,255,.25); }
+
+/* Race countdown: 3, 2, 1, GO! */
+.race-countdown {
+  position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%);
+  font: 900 clamp(64px, 14vw, 140px)/1 system-ui, sans-serif; color: #ffd23f;
+  text-shadow: 0 4px 0 #7a4b00, 0 8px 24px rgba(0, 0, 0, 0.45); pointer-events: none; z-index: 30;
+  animation: race-pop 1s ease-out infinite;
+}
+.race-countdown.hidden { display: none; }
+@keyframes race-pop { 0% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.4; } 25% { transform: translate(-50%, -50%) scale(1); opacity: 1; } }

@@ -7,6 +7,8 @@ export interface FoundPlayer {
   z: number;
   inVehicle: boolean;
   flying: boolean;
+  /** What they drive or ride, if anything. */
+  ride?: 'car' | 'motorbike' | 'bicycle' | 'tuktuk' | null;
 }
 
 export type FindMode = 'navigate' | 'follow' | 'goto';

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {PhysicsWorld} from '../src/physics/PhysicsWorld';
 import {VehiclePhysics, type DriveInput} from '../src/vehicles/VehiclePhysics';
 import {VehicleSystem} from '../src/vehicles/VehicleInteraction';
-import {createVehicleModel,disposeVehicleModel} from '../src/vehicles/VehicleModel';
+import {createVehicleModel,disposeVehicleModel,deployPods} from '../src/vehicles/VehicleModel';
 const bounds={minX:-200,maxX:200,minZ:-200,maxZ:200};
 const idle:DriveInput={throttle:0,brake:0,steer:0,handbrake:false};
 describe('reference flying sedan and vehicle safety',()=>{
@@ -12,7 +12,13 @@ describe('reference flying sedan and vehicle safety',()=>{
     const a=createVehicleModel(0xffffff,true),b=createVehicleModel(0x444444);
     expect(errors).not.toHaveBeenCalled();errors.mockRestore();
     expect(a.rotors).toHaveLength(4);expect(a.thrustMat).not.toBeNull();expect(b.rotors).toHaveLength(0);
-    expect(new THREE.Box3().setFromObject(a.root).getSize(new THREE.Vector3()).x).toBeGreaterThan(4.5);
+    // Fans are folded away on land and spread out once flying.
+    const width=()=>new THREE.Box3().setFromObject(a.root,true).getSize(new THREE.Vector3()).x;
+    expect(a.pods).toHaveLength(4);expect(width()).toBeLessThan(2.5);
+    for(let i=0;i<60;i++)deployPods(a,true,1/30);
+    expect(width()).toBeGreaterThan(4.5);
+    for(let i=0;i<60;i++)deployPods(a,false,1/30);
+    expect(a.pods!.every(p=>!p.visible)).toBe(true);
     disposeVehicleModel(a);disposeVehicleModel(b);
   });
   it('takes off, holds altitude and lands without falling through the ground',async()=>{

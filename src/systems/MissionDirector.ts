@@ -1,4 +1,4 @@
-import { ITEMS, type ItemId, blocker, emptyState, loadProgress, MissionEngine, missionById, RACE_WIN_BONUS, saveProgress, validMissionState, type FxKind, type Lang, type MissionContext, type MissionProgress, type MissionState, type PlaceRef, type PlayerPos, type Text } from './Missions';
+import { ordinal, raceTime, ITEMS, type ItemId, blocker, emptyState, loadProgress, MissionEngine, missionById, RACE_WIN_BONUS, saveProgress, validMissionState, type FxKind, type Lang, type MissionContext, type MissionProgress, type MissionState, type PlaceRef, type PlayerPos, type Text } from './Missions';
 import { festivalActive } from './Thadingyut';
 import type { Rooms } from './Rooms';
 
@@ -38,6 +38,7 @@ export class MissionDirector {
   private lastStep = -1;
   private sawRunning = false;
   private tick = 0;
+  private lastCp = '';
 
   constructor(private readonly h: DirectorHooks, private readonly store: Storage | null = safeStore()) {
     this.progress = loadProgress(store);
@@ -157,8 +158,44 @@ export class MissionDirector {
       this.lastStep = s.step;
       const step = s.id && !s.done ? missionById(s.id)?.steps[s.step] : undefined;
       this.h.target(step ? this.h.place(step.place) : null);
+      this.lastCp = '';
       this.h.onChange();
     }
+    // Checkpoint race: route each racer to their own next checkpoint.
+    const race = this.race();
+    if (race && race.next) {
+      const key = `${s.id}:${s.step}:${race.cp}`;
+      if (key !== this.lastCp) { this.lastCp = key; this.h.target(race.next); }
+    }
+  }
+
+  /** Your checkpoint race status, while one is on. */
+  race(): null | { next: { x: number; z: number } | null; cp: number; total: number; place: number; racers: number; countdown: number | null; elapsed: number; finished: boolean } {
+    const s = this.state;
+    const step = s.id && !s.done ? missionById(s.id)?.steps[s.step] : undefined;
+    const c = step?.circuit;
+    if (!step || !c) return null;
+    const me = this.selfId();
+    const finish = s.finish ?? [];
+    const cp = s.scores[me] ?? 0;
+    const finished = finish.some((f) => f.id === me);
+    const nextRef = finished ? null : cp < c.checkpoints.length ? c.checkpoints[cp]!.place : step.place;
+    const next = nextRef ? this.h.place(nextRef) : null;
+    // Standing: finishers in order, then most checkpoints, then nearest to their next one.
+    const players = this.h.players();
+    const dist = (p: PlayerPos) => {
+      const k = s.scores[p.id] ?? 0;
+      const at = this.h.place(k < c.checkpoints.length ? c.checkpoints[k]!.place : step.place);
+      return at ? Math.hypot(at.x - p.x, at.z - p.z) : 0;
+    };
+    const order = [...players].sort((a, b) => {
+      const fa = finish.findIndex((f) => f.id === a.id), fb = finish.findIndex((f) => f.id === b.id);
+      if (fa >= 0 || fb >= 0) return (fa < 0 ? 99 : fa) - (fb < 0 ? 99 : fb);
+      return (s.scores[b.id] ?? 0) - (s.scores[a.id] ?? 0) || dist(a) - dist(b);
+    });
+    const now = Date.now();
+    const goAt = s.goAt ?? now;
+    return { next, cp, total: c.checkpoints.length, place: order.findIndex((p) => p.id === me) + 1, racers: players.length, countdown: now < goAt ? Math.ceil((goAt - now) / 1000) : null, elapsed: Math.max(0, now - goAt), finished };
   }
 
   /** What the on-screen tracker shows. */
@@ -169,10 +206,11 @@ export class MissionDirector {
     const lang = this.h.lang();
     const pick = (t: Text) => t[lang] || t.en;
     const step = s.done ? undefined : def.steps[s.step];
-    const at = step ? this.h.place(step.place) : null;
+    const race = this.race();
+    const at = race ? race.next : step ? this.h.place(step.place) : null;
     const me = this.h.players()[0];
     const items = Object.entries(s.items).filter(([, n]) => n! > 0).map(([k, n]) => `${ITEMS[k as ItemId].icon}×${n}`).join(' ');
-    let wait: Text | null = step && at && !step.collect && !step.tag && !step.hide ? blocker(step, this.ctx(), at) : null;
+    let wait: Text | null = step && at && !step.collect && !step.tag && !step.hide && !step.circuit ? blocker(step, this.ctx(), at) : null;
     // Live mini-game status.
     const players = this.h.players();
     const nameOf = (id: string | null) => players.find((p) => p.id === id)?.name ?? '?';
@@ -186,6 +224,14 @@ export class MissionDirector {
     } else if (step?.tag) {
       const me = s.it === this.selfId();
       wait = { en: `${me ? '🔴 YOU are IT — touch someone!' : `🏃 ${nameOf(s.it)} is IT — run!`} · ${clock} left`, rki: `${me ? '🔴 မင်း IT ဖြစ်နီရေ!' : `🏃 ${nameOf(s.it)} IT ဖြစ်နီရေ`} · ${clock}` };
+    } else if (step?.circuit) {
+      const r = this.race()!;
+      const mine = (s.finish ?? []).find((f) => f.id === this.selfId());
+      wait = r.countdown !== null
+        ? { en: `🏁 Get ready… ${r.countdown}`, rki: `🏁 အသင့်… ${r.countdown}` }
+        : mine
+          ? { en: `🏁 You finished ${ordinal((s.finish ?? []).indexOf(mine) + 1)} — ${raceTime(mine.ms)}`, rki: `🏁 အဆင့် ${(s.finish ?? []).indexOf(mine) + 1} — ${raceTime(mine.ms)}` }
+          : { en: `🏍️ ${ordinal(r.place)} of ${r.racers} · ${r.cp < r.total ? `checkpoint ${r.cp + 1}/${r.total}` : 'to the finish!'} · ${raceTime(r.elapsed)}`, rki: `🏍️ အဆင့် ${r.place}/${r.racers} · ${r.cp < r.total ? `စစ်ဆေးမှတ် ${r.cp + 1}/${r.total}` : 'ပန်းတိုင်!'} · ${raceTime(r.elapsed)}` };
     } else if (step?.hide) {
       const seeking = s.phase === 'seek';
       const me = s.seeker === this.selfId();

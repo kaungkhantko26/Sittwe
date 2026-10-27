@@ -10,13 +10,13 @@ import type {FoundPlayer} from './PlayerFinder';
 import {SWIM_SINK} from '../player/PlayerController';
 import {createHeadlightBeams,type HeadlightBeams} from '../vehicles/HeadlightBeams';
 import {BoatLook} from '../vehicles/BoatLook';
-import {createTwoWheelerModel,liftFrontWheel} from '../vehicles/VehicleModel';
-import {seatPillion,seatRider} from '../vehicles/Rider';
+import {deployPods,createTuktukModel,createTwoWheelerModel,liftFrontWheel} from '../vehicles/VehicleModel';
+import {seatPassenger,seatRider} from '../vehicles/Rider';
 import type {ExhaustSource} from '../vehicles/BikeFx';
 import {applySitPose,resetPose} from '../player/Clothes';
 /** Real spotlights shared by the nearest remote cars with headlights on (fixed count: no shader recompiles). */
 const REMOTE_LIGHTS=3;
-interface Remote {sat?:boolean;pillion?:boolean;baseQ?:THREE.Quaternion;wheelie?:number;swimBlend?:number;rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;kind?:'car'|'motorbike'|'bicycle';pedal?:number;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
+interface Remote {sat?:boolean;pillion?:boolean;baseQ?:THREE.Quaternion;wheelie?:number;swimBlend?:number;rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;kind?:'car'|'motorbike'|'bicycle'|'tuktuk';pedal?:number;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
 export class RemotePlayers {
  private players=new Map<string,Remote>();
  private seats:RideSeat[]=[];
@@ -36,7 +36,7 @@ export class RemotePlayers {
  exhausts(out:ExhaustSource[]):void{for(const p of this.players.values())if(p.car?.exhaust&&p.state.vehicle&&p.car.root.visible)out.push({exhaust:p.car.exhaust,throttle:Math.min(1,p.state.speed/12)})}
  /** Everyone else in the room at their smoothed on-screen position (for the maps and the finder). */
  list():FoundPlayer[] {
-  return [...this.players].map(([id,p])=>{const pos=p.car&&p.state.vehicle?p.car.root.position:p.rig.root.position;return {id,name:p.state.name,x:pos.x,z:pos.z,inVehicle:!!p.state.vehicle,flying:!!p.state.vehicle?.flying};});
+  return [...this.players].map(([id,p])=>{const pos=p.car&&p.state.vehicle?p.car.root.position:p.rig.root.position;return {id,name:p.state.name,x:pos.x,z:pos.z,inVehicle:!!p.state.vehicle,flying:!!p.state.vehicle?.flying,ride:p.state.vehicle?(p.state.vehicle.kind??'car'):null};});
  }
  nearestRide(position:THREE.Vector3):{id:string;name:string}|null {
   for(const [id,p] of this.players){const v=p.state.vehicle;if(v&&!v.flying&&p.state.speed<=2&&Math.abs(position.y-v.y)<2.5&&Math.hypot(position.x-v.x,position.z-v.z)<5&&this.seats.filter(s=>s.driverId===id).length<passengerSeats(v.kind??'car'))return {id,name:p.state.name};}return null;
@@ -69,7 +69,7 @@ export class RemotePlayers {
    if(s.vehicle){
     const kind=s.vehicle.kind??'car';
     if(p.car&&(p.color!==(s.vehicle.color??0xf2f3f4)||p.kind!==kind)){p.car.root.removeFromParent();disposeVehicleModel(p.car);p.car=null;}
-    if(!p.car){p.color=s.vehicle.color??0xf2f3f4;p.kind=kind;p.car=kind==='car'?createVehicleModel(p.color,true):createTwoWheelerModel(kind,p.color);p.beams=createHeadlightBeams(p.car);p.boat=new BoatLook(p.car,p.color);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
+    if(!p.car){p.color=s.vehicle.color??0xf2f3f4;p.kind=kind;p.car=kind==='car'?createVehicleModel(p.color,true):kind==='tuktuk'?createTuktukModel(p.color):createTwoWheelerModel(kind,p.color);p.beams=createHeadlightBeams(p.car);p.boat=new BoatLook(p.car,p.color);p.car.root.position.set(s.vehicle.x,s.vehicle.y,s.vehicle.z);this.scene.add(p.car.root)}
     const v=s.vehicle;p.car.root.visible=root.visible;
     // Smooth the body rotation separately, so a wheelie tilt is added on top each frame.
     const base=p.baseQ??=p.car.root.quaternion.clone();
@@ -77,11 +77,11 @@ export class RemotePlayers {
     if(v.qw!==undefined)base.slerp(new THREE.Quaternion(v.qx!,v.qy!,v.qz!,v.qw).normalize(),1-Math.exp(-16*dt));
     p.car.root.quaternion.copy(base);
     p.wheelie=(p.wheelie??0)+((v.wheelie??0)-(p.wheelie??0))*Math.min(1,dt*10);
-    if(kind!=='car')liftFrontWheel(p.car.root,kind,p.wheelie);
+    if(kind==='motorbike'||kind==='bicycle')liftFrontWheel(p.car.root,kind,p.wheelie);
     p.car.headMat.emissiveIntensity=v.headlights?2.5:0;p.beams?.set(!!v.headlights&&root.visible,Math.max(.12,night),v.flying);
     if(v.headlights&&root.visible&&night>.05)lit.push({car:p.car,d:Math.hypot(s.x-px,s.z-pz)});
     p.car.brakeMat.emissiveIntensity=v.braking?2.6:v.headlights?.8:.15;
-    for(const thrust of p.car.thrusts)thrust.visible=v.flying;
+    deployPods(p.car,v.flying,dt);for(const thrust of p.car.thrusts)thrust.visible=v.flying;
     p.boat?.update(dt,!!v.boat,s.speed);
     // A friend on a motorbike or bicycle is shown riding it.
     if(kind!=='car'){p.pedal=(p.pedal??0)+dt*s.speed*1.6;p.rig.body.visible=true;seatRider(p.rig,p.car,kind,p.pedal,p.wheelie);}
@@ -113,8 +113,8 @@ export class RemotePlayers {
    const p=this.players.get(seat.playerId);if(!p)continue;
    // The driver may be another player or this player (local car), so look up both.
    const car=this.players.get(seat.driverId)?.car?.root??(this.localDriver?.id===seat.driverId?this.localDriver.root:null);if(!car)continue;
-   // On a motorbike the passenger sits on the back seat, in view.
-   if(car.name==='motorbike'){seatPillion(p.rig,car);p.rig.root.visible=car.visible;pillion.add(p);if(p.car)p.car.root.visible=false;continue;}
+   // On a motorbike or a tuktuk the passenger sits in view (back seat or bench).
+   if(seatPassenger(p.rig,car,seat.seat)){p.rig.root.visible=car.visible;pillion.add(p);if(p.car)p.car.root.visible=false;continue;}
    p.rig.body.visible=false;p.rig.root.position.copy(car.position).add(new THREE.Vector3(seat.seat===1?.55:-.55,.15,seat.seat===1?-.3:.6).applyQuaternion(car.quaternion));p.rig.root.rotation.y=new THREE.Euler().setFromQuaternion(car.quaternion,'YXZ').y;
    if(p.car)p.car.root.visible=false;
   }

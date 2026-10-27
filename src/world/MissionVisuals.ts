@@ -12,6 +12,11 @@ export class MissionVisuals {
   private readonly ring: THREE.InstancedMesh;
   private readonly itMarker = new THREE.Group();
   private readonly blindfold: HTMLElement;
+  /** Checkpoint race: a light beam over your next checkpoint and the big countdown. */
+  private readonly beam: THREE.Mesh;
+  private readonly countdown: HTMLElement;
+  private goUntil = 0;
+  private lastCount: number | null = null;
   private time = 0;
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -37,6 +42,14 @@ export class MissionVisuals {
     this.itMarker.add(cone, label);
     this.itMarker.visible = false;
     scene.add(this.itMarker);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    this.beam = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 60, 24, 1, true).translate(0, 30, 0), beamMat);
+    this.beam.visible = false;
+    this.beam.frustumCulled = false;
+    scene.add(this.beam);
+    this.countdown = document.createElement('div');
+    this.countdown.className = 'race-countdown hidden';
+    hudRoot.appendChild(this.countdown);
     this.blindfold = document.createElement('div');
     this.blindfold.className = 'seek-blindfold hidden';
     hudRoot.appendChild(this.blindfold);
@@ -71,6 +84,25 @@ export class MissionVisuals {
     const blind = !!step?.hide && st.seeker === selfId && st.phase === 'hide';
     this.blindfold.classList.toggle('hidden', !blind);
     if (blind && st.endsAt) this.blindfold.textContent = `🙈 Counting… ${Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000))}`;
+  }
+
+  /** Race overlay: beam on your next checkpoint, 3-2-1-GO in the middle of the screen. */
+  race(info: { next: { x: number; z: number } | null; countdown: number | null; finished: boolean } | null, groundY = 0): void {
+    this.beam.visible = !!info?.next && !info.finished;
+    if (info?.next) {
+      this.beam.position.set(info.next.x, groundY, info.next.z);
+      (this.beam.material as THREE.MeshBasicMaterial).opacity = 0.22 + 0.1 * Math.sin(this.time * 4);
+    }
+    const now = performance.now();
+    if (info?.countdown != null) {
+      this.countdown.textContent = String(info.countdown);
+    } else if (this.lastCount != null && info) {
+      this.countdown.textContent = 'GO!';
+      this.goUntil = now + 1200;
+    }
+    this.lastCount = info?.countdown ?? null;
+    const show = info?.countdown != null || now < this.goUntil;
+    this.countdown.classList.toggle('hidden', !show);
   }
 
   /** While you are the seeker, friends' name tags and map dots must not give them away. */

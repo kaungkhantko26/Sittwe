@@ -49,7 +49,16 @@ export interface MissionStep {
   tag?: { seconds: number };
   /** Hide and seek: the seeker waits, then has a time limit to find everyone. */
   hide?: { hideSeconds: number; seekSeconds: number };
+  /** Lineup steps: everyone must be riding this (e.g. a motorbike race). */
+  ride?: Ride;
+  /**
+   * Checkpoint race: a countdown from the lineup, then each racer passes the
+   * checkpoints in order and finishes at the step's place. Ranked by time.
+   */
+  circuit?: { checkpoints: Array<{ place: PlaceRef; radius: number }>; countdown: number; ride?: Ride; timeLimit: number };
 }
+
+export type Ride = 'car' | 'motorbike' | 'bicycle' | 'tuktuk';
 
 export interface MissionDef {
   id: string;
@@ -94,6 +103,7 @@ export const PLACES = {
   cafeDeSittwe: 'node/4925512104',
   uOttama: 'node/4303566099', // U Ottama memorial statue
   clockTower: 'node/4303580092',
+  danyawaddyStadium: 'node/12382017184', // Danyawaddy Stadium
   home: 'home',
   /** The beach campfire near Sittwe Point (placed on the sand at load). */
   campfire: 'campfire',
@@ -164,6 +174,35 @@ export const MISSIONS: MissionDef[] = [
     steps: [
       { text: T('Everyone lines up at the U Ottama statue', 'ဦးဥတ္တမရုပ်တုမှာ အားလုံးစုကတ်ပါ'), place: PLACES.uOttama, radius: 35, together: true },
       { text: T('Race to View Point!', 'View Point အထိ ပြိုင်ကတ်မေ!'), place: PLACES.viewPoint, radius: 40, race: true },
+    ],
+  },
+  {
+    id: 'bike-race-town',
+    minPlayers: 2,
+    icon: '🏍️',
+    title: T('Motorbike race: town loop', 'မော်တော်ဆိုင်ကယ်ပြိုင်ပွဲ: မြို့ပတ်'),
+    intro: T('Everyone on a motorbike (press B for one) at the Clock Tower. After the countdown, ride through May Yu Market, Lawkanandar Pagoda and Danyawaddy Stadium, then back to the Clock Tower. Fastest time wins.', 'နာရီစင်မှာ အားလုံး မော်တော်ဆိုင်ကယ်နန့် စုကတ်ပါ (B နှိပ်ကေ ရဖို့)။ ရေတွက်ပြီးကေ မေယုဈေး၊ လောကနန္ဒာဘုရား၊ ဓညဝတီကွင်း ဖြတ်ပြီး နာရီစင်ကို ပြန်လာကတ်မေ။ အမြန်ဆုံးလူ နိုင်ဖို့။'),
+    season: 'any',
+    social: true,
+    budget: 0,
+    reward: 2500,
+    steps: [
+      { text: T('Line up at the Clock Tower on your motorbikes', 'နာရီစင်မှာ ဆိုင်ကယ်နန့် စုကတ်ပါ'), place: PLACES.clockTower, radius: 30, together: true, ride: 'motorbike' },
+      {
+        text: T('Race! Checkpoints, then back to the Clock Tower', 'ပြိုင်ကတ်! စစ်ဆေးမှတ်တိ ဖြတ်ပြီး နာရီစင်ကို ပြန်လာ'),
+        place: PLACES.clockTower,
+        radius: 30,
+        circuit: {
+          checkpoints: [
+            { place: PLACES.mayYu, radius: 40 },
+            { place: PLACES.lawkanandar, radius: 70 },
+            { place: PLACES.danyawaddyStadium, radius: 60 },
+          ],
+          countdown: 3,
+          ride: 'motorbike',
+          timeLimit: 480,
+        },
+      },
     ],
   },
   {
@@ -301,6 +340,8 @@ export interface PlayerPos {
   name: string;
   x: number;
   z: number;
+  /** What they are driving or riding, if anything. */
+  ride?: Ride | null;
 }
 
 /** Shared mission state (sent from the host to every guest). */
@@ -324,7 +365,7 @@ export interface MissionState {
   itTime: Record<string, number>;
   /** Hide and seek. */
   seeker: string | null;
-  phase: 'hide' | 'seek' | null;
+  phase: 'hide' | 'seek' | 'countdown' | 'racing' | null;
   found: string[];
   /** Timers (ms since epoch). */
   endsAt: number | null;
@@ -332,6 +373,10 @@ export interface MissionState {
   lastTag: number;
   /** First `sync` action time (ms). */
   syncStart: number;
+  /** Checkpoint race: start time (ms, after the countdown), finishers in order with their times, last countdown number shown. */
+  goAt?: number | null;
+  finish?: Array<{ id: string; ms: number }>;
+  beat?: number;
 }
 
 export function emptyState(): MissionState {
@@ -363,9 +408,25 @@ function near(p: PlayerPos, at: { x: number; z: number }, r: number): boolean {
   return Math.hypot(p.x - at.x, p.z - at.z) <= r;
 }
 
+/** 1st, 2nd, 3rd… */
+export function ordinal(n: number): string {
+  const t = n % 100;
+  return `${n}${t >= 11 && t <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+}
+
+/** Race time as m:ss.t */
+export function raceTime(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+}
+
 /** Why a step cannot progress right now (shown in the tracker), or null if it can. */
 export function blocker(step: MissionStep, ctx: MissionContext, at: { x: number; z: number }): Text | null {
   if (step.night && !isNight(ctx.hours)) return T('Wait for dark (after 18:00)', 'မှောင်လာရေအထိ စောင့်ပါ (၁၈:၀၀ နောက်)');
+  if (step.ride) {
+    const off = ctx.players.filter((p) => p.ride !== step.ride);
+    if (off.length) return T(`Waiting for ${off.map((p) => p.name).join(', ')} to get on a ${step.ride} (press B)`, `${off.map((p) => p.name).join('၊ ')} ဆိုင်ကယ်စီးဖို့ စောင့်နီရေ (B)`);
+  }
   if (step.together) {
     const away = ctx.players.filter((p) => !near(p, at, step.radius));
     if (away.length) return T(`Waiting for ${away.map((p) => p.name).join(', ')}`, `${away.map((p) => p.name).join('၊ ')} ကို စောင့်နီရေ`);
@@ -411,6 +472,9 @@ export class MissionEngine {
     st.found = [];
     st.endsAt = null;
     st.syncStart = 0;
+    st.goAt = null;
+    st.finish = [];
+    st.beat = 0;
     if (!step) return;
     const now = this.now(ctx);
     st.lastTick = now;
@@ -431,6 +495,13 @@ export class MissionEngine {
       const it = ctx.players.find((p) => p.id === st.it)!;
       this.emit(T(`🏃 ${it.name} is IT! Run!`, `🏃 ${it.name} က IT ဖြစ်ယာ! ပြေးကတ်!`), 'tag', { x: it.x, z: it.z });
     }
+    if (step.circuit) {
+      st.scores = {};
+      st.phase = 'countdown';
+      st.goAt = now + step.circuit.countdown * 1000;
+      st.endsAt = st.goAt + step.circuit.timeLimit * 1000;
+      st.beat = step.circuit.countdown + 1;
+    }
     if (step.hide && ctx.players.length) {
       st.seeker = pick().id;
       st.phase = 'hide';
@@ -449,7 +520,7 @@ export class MissionEngine {
     this.state.event = { text, ...(fx ? { fx } : {}), ...(at ? { x: at.x, z: at.z } : {}) };
   }
 
-  private advance(ctx: MissionContext, winner?: PlayerPos): void {
+  private advance(ctx: MissionContext, winner?: PlayerPos, results?: Text): void {
     const def = this.def!;
     this.state.step = winner ? def.steps.length : this.state.step + 1;
     this.state.acted = [];
@@ -460,7 +531,9 @@ export class MissionEngine {
     this.state.done = { reward, at: Date.now(), ...(winner ? { winner: winner.id, winnerName: winner.name } : {}) };
     const head = winner ? `🏆 ${winner.name} wins! ` : '';
     const headR = winner ? `🏆 ${winner.name} နိုင်လားယာ! ` : '';
-    this.emit(T(`${head}Mission complete! +${ks} Ks${bonus ? ' (sunset bonus)' : ''}${winner ? ` · winner +${RACE_WIN_BONUS.toLocaleString('en-US')} Ks` : ''}`, `${headR}မစ်ရှင်ပြီးလားယာ! +${ks} ကျပ်`), winner ? 'fireworks' : undefined, winner ? ctx.place(def.steps[def.steps.length - 1]!.place) ?? undefined : undefined);
+    const tail = results ? ` · ${results.en}` : '';
+    const tailR = results ? ` · ${results.rki}` : '';
+    this.emit(T(`${head}Mission complete! +${ks} Ks${bonus ? ' (sunset bonus)' : ''}${winner ? ` · winner +${RACE_WIN_BONUS.toLocaleString('en-US')} Ks` : ''}${tail}`, `${headR}မစ်ရှင်ပြီးလားယာ! +${ks} ကျပ်${tailR}`), winner ? 'fireworks' : undefined, winner ? ctx.place(def.steps[def.steps.length - 1]!.place) ?? undefined : undefined);
   }
 
   /** Checks arrival steps; call a few times per second. */
@@ -470,6 +543,7 @@ export class MissionEngine {
     if (step.collect) { this.updateCollect(step, ctx); return; }
     if (step.tag) { this.updateTag(step, ctx); return; }
     if (step.hide) { this.updateHide(step, ctx); return; }
+    if (step.circuit) { this.updateCircuit(step, ctx); return; }
     if (step.action) {
       // Synced actions: if the team was too slow, start the round again.
       if (step.action.sync && this.state.acted.length > 0 && this.now(ctx) - this.state.syncStart > SYNC_MS && this.state.acted.length < ctx.players.length) {
@@ -534,6 +608,53 @@ export class MissionEngine {
       }
     }
     if (st.endsAt && now >= st.endsAt) this.advance(ctx, this.winnerBy(ctx, (id) => st.itTime[id] ?? 0, true));
+  }
+
+  private updateCircuit(step: MissionStep, ctx: MissionContext): void {
+    const st = this.state, c = step.circuit!, now = this.now(ctx);
+    const goAt = st.goAt ?? now;
+    const finish = (st.finish ??= []);
+    if (now < goAt) {
+      // Countdown: 3, 2, 1…
+      const left = Math.ceil((goAt - now) / 1000);
+      if (left < (st.beat ?? Infinity)) { st.beat = left; this.emit(T(`🏁 ${left}…`, `🏁 ${left}…`)); }
+      return;
+    }
+    if (st.phase === 'countdown') {
+      st.phase = 'racing';
+      st.beat = 0;
+      this.emit(T('🏁 GO! GO! GO!', '🏁 စ! စ! စ!'));
+    }
+    const finishAt = ctx.place(step.place);
+    for (const p of ctx.players) {
+      if (finish.some((f) => f.id === p.id)) continue;
+      // Checkpoints only count while riding the right vehicle.
+      if (c.ride && p.ride !== c.ride) continue;
+      const done = st.scores[p.id] ?? 0;
+      if (done < c.checkpoints.length) {
+        const cp = c.checkpoints[done]!;
+        const at = ctx.place(cp.place);
+        if (at && near(p, at, cp.radius)) {
+          st.scores[p.id] = done + 1;
+          this.emit(T(`✅ ${p.name}: checkpoint ${done + 1}/${c.checkpoints.length}`, `✅ ${p.name}: စစ်ဆေးမှတ် ${done + 1}/${c.checkpoints.length}`), 'pickup', at);
+        }
+      } else if (finishAt && near(p, finishAt, step.radius)) {
+        const ms = now - goAt;
+        finish.push({ id: p.id, ms });
+        this.emit(T(`🏁 ${p.name} finishes ${ordinal(finish.length)} — ${raceTime(ms)}`, `🏁 ${p.name} အဆင့် ${finish.length} — ${raceTime(ms)}`), finish.length === 1 ? 'fireworks' : 'cheers', { x: p.x, z: p.z });
+      }
+    }
+    // Ends when everyone is in, 45 s after the winner, or at the time limit.
+    const all = ctx.players.every((p) => finish.some((f) => f.id === p.id));
+    const late = finish.length > 0 && now - goAt - finish[0]!.ms > 45000;
+    if (all || late || (st.endsAt !== null && now >= st.endsAt)) {
+      const name = (id: string) => ctx.players.find((p) => p.id === id)?.name ?? '?';
+      const list = finish.map((f, i) => `${i + 1}. ${name(f.id)} ${raceTime(f.ms)}`);
+      const dnf = ctx.players.filter((p) => !finish.some((f) => f.id === p.id)).map((p) => `${p.name} DNF`);
+      const results = [...list, ...dnf].join(' · ');
+      const winner = finish[0] ? ctx.players.find((p) => p.id === finish[0]!.id) : undefined;
+      this.advance(ctx, winner, T(results, results));
+    }
   }
 
   private updateHide(step: MissionStep, ctx: MissionContext): void {
@@ -619,7 +740,10 @@ export function validMissionState(raw: unknown): raw is MissionState {
   const record = (r: unknown) => !!r && typeof r === 'object' && Object.keys(r).length <= 16 && Object.values(r as object).every((v) => Number.isFinite(v) && v >= 0 && v < 1e5);
   if (!Array.isArray(s.pickups) || s.pickups.length > 90 || s.pickups.some((v) => !Number.isFinite(v) || Math.abs(v) > 50000)) return false;
   if (!record(s.scores) || !record(s.itTime) || !id(s.it) || !id(s.seeker)) return false;
-  if (s.phase !== null && s.phase !== 'hide' && s.phase !== 'seek') return false;
+  if (s.phase !== null && !['hide', 'seek', 'countdown', 'racing'].includes(s.phase)) return false;
+  if (s.goAt !== undefined && s.goAt !== null && !Number.isFinite(s.goAt)) return false;
+  if (s.beat !== undefined && !Number.isFinite(s.beat)) return false;
+  if (s.finish !== undefined && (!Array.isArray(s.finish) || s.finish.length > 16 || !s.finish.every((f) => f && typeof f.id === 'string' && f.id.length < 100 && Number.isFinite(f.ms) && f.ms >= 0))) return false;
   if (!Array.isArray(s.found) || s.found.length > 16 || !s.found.every((f) => typeof f === 'string' && f.length < 100)) return false;
   if (s.endsAt !== null && !Number.isFinite(s.endsAt)) return false;
   return true;

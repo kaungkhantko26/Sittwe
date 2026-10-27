@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {MISSIONS,MissionEngine,PLACES,validMissionState,loadProgress,type MissionContext,type PlayerPos} from '../src/systems/Missions';
 import {isThadingyut,festivalActive,thadingyutFullMoon} from '../src/systems/Thadingyut';
 
-const at:Record<string,{x:number;z:number}>={campfire:{x:150,z:2800},[PLACES.goldenFish]:{x:-60,z:-547},[PLACES.viewPoint]:{x:95,z:2887},[PLACES.mayYu]:{x:-916,z:213},[PLACES.lawkanandar]:{x:-1181,z:288},[PLACES.uOttama]:{x:68,z:-201},home:{x:500,z:500}};
+const at:Record<string,{x:number;z:number}>={campfire:{x:150,z:2800},[PLACES.goldenFish]:{x:-60,z:-547},[PLACES.viewPoint]:{x:95,z:2887},[PLACES.mayYu]:{x:-916,z:213},[PLACES.lawkanandar]:{x:-1181,z:288},[PLACES.uOttama]:{x:68,z:-201},[PLACES.clockTower]:{x:-64,z:306},[PLACES.danyawaddyStadium]:{x:-756,z:394},home:{x:500,z:500}};
 const ctx=(players:PlayerPos[],hours=12,now=0):MissionContext=>({players,hours,now,place:r=>at[r]??null});
 const P=(id:string,where:string,dx=0):PlayerPos=>({id,name:id.toUpperCase(),x:at[where]!.x+dx,z:at[where]!.z});
 
@@ -112,5 +112,33 @@ describe('Thadingyut festival dates',()=>{
     expect(festivalActive('on',new Date('2025-03-01'))).toBe(true);
     expect(festivalActive('off',new Date('2024-10-17T06:00:00Z'))).toBe(false);
     expect(thadingyutFullMoon(2026).getUTCMonth()).toBe(9);
+  });
+  it('motorbike race: lineup on bikes, countdown, checkpoints in order, ranked finish with times',()=>{
+    const bike=(id:string,where:string,ride:PlayerPos['ride']='motorbike'):PlayerPos=>({...P(id,where),ride});
+    const e=new MissionEngine();
+    let a=bike('a',PLACES.clockTower),b=bike('b',PLACES.clockTower,null);
+    expect(e.start('bike-race-town',false,ctx([a,b],12,0))).toBeNull();
+    e.update(ctx([a,b],12,0));expect(e.state.step).toBe(0); // b is on foot
+    b=bike('b',PLACES.clockTower);e.update(ctx([a,b],12,0));expect(e.state.step).toBe(1);expect(e.state.phase).toBe('countdown');
+    e.update(ctx([a,b],12,500));expect(e.state.event?.text.en).toContain('3');
+    a=bike('a',PLACES.mayYu);e.update(ctx([a,b],12,2000));expect(e.state.scores.a??0).toBe(0); // no head start before GO
+    e.update(ctx([a,b],12,3000));expect(e.state.phase).toBe('racing');expect(e.state.scores.a).toBe(1);
+    // Skipping a checkpoint does not count: a jumps to the stadium before the pagoda.
+    a=bike('a',PLACES.danyawaddyStadium);e.update(ctx([a,b],12,4000));expect(e.state.scores.a).toBe(1);
+    for(const [w,t] of [[PLACES.lawkanandar,5000],[PLACES.danyawaddyStadium,6000],[PLACES.clockTower,63000]] as const){a=bike('a',w);e.update(ctx([a,b],12,t));}
+    expect(e.state.finish?.[0]).toEqual({id:'a',ms:60000});
+    // Getting off the bike stops checkpoints counting.
+    b=bike('b',PLACES.mayYu,null);e.update(ctx([a,b],12,64000));expect(e.state.scores.b??0).toBe(0);
+    for(const [w,t] of [[PLACES.mayYu,65000],[PLACES.lawkanandar,66000],[PLACES.danyawaddyStadium,67000],[PLACES.clockTower,73000]] as const){b=bike('b',w);e.update(ctx([a,b],12,t));}
+    expect(e.state.done?.winner).toBe('a');expect(e.state.event?.text.en).toContain('1. A 1:00.0 · 2. B 1:10.0');
+    expect(validMissionState(JSON.parse(JSON.stringify(e.state)))).toBe(true);
+  });
+  it('motorbike race ends with DNF 45 s after the winner',()=>{
+    const bike=(id:string,where:string):PlayerPos=>({...P(id,where),ride:'motorbike'});
+    const e=new MissionEngine();let a=bike('a',PLACES.clockTower);const b=bike('b',PLACES.clockTower);
+    e.start('bike-race-town',false,ctx([a,b],12,0));e.update(ctx([a,b],12,0));
+    for(const [w,t] of [[PLACES.mayYu,3000],[PLACES.lawkanandar,4000],[PLACES.danyawaddyStadium,5000],[PLACES.clockTower,13000]] as const){a=bike('a',w);e.update(ctx([a,b],12,t));}
+    e.update(ctx([a,b],12,40000));expect(e.state.done).toBeNull();
+    e.update(ctx([a,b],12,59000));expect(e.state.done?.winner).toBe('a');expect(e.state.event?.text.en).toContain('B DNF');
   });
 });

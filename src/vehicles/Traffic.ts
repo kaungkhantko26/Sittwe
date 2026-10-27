@@ -5,7 +5,7 @@ import type { RoadGraph } from '../geo/roadGraph';
 import { Groups } from '../physics/CollisionLayers';
 import { GROUND_Y, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { ExhaustSource } from './BikeFx';
-import { BIKE_GROUND, createTwoWheelerModel, createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
+import { TUKTUK_GROUND, createTuktukModel, BIKE_GROUND, createTwoWheelerModel, createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
 import { SPECS, type VehicleKind } from './VehiclePhysics';
 import { createCharacter, disposeCharacter } from '../player/CharacterModels';
 import type { PlayerRig } from '../player/PlayerModel';
@@ -14,10 +14,15 @@ import { seatRider } from './Rider';
 /** Share of traffic that is motorbikes and bicycles (common on Sittwe's streets). */
 const MOTORBIKE_SHARE = 0.32;
 const BICYCLE_SHARE = 0.16;
+/** Tuktuks (auto-rickshaws), the town's shared taxis. */
+const TUKTUK_SHARE = 0.12;
+const TUKTUK_COLORS = [0xf2b705, 0xf2b705, 0xe8a317, 0x2f8f4e, 0x1f6fb5];
+/** Cars and tuktuks take the full lane; bikes keep to the edge. */
+const wide = (k: VehicleKind) => k === 'car' || k === 'tuktuk';
 const BIKE_COLORS = [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0, 0x2f7d4f, 0x6b4a2f];
 
 /** Body height above the road for each kind (cars and bikes have different models). */
-const rideHeight = (k: VehicleKind) => GROUND_Y + (k === 'car' ? MODEL_GROUND_OFFSET : -BIKE_GROUND);
+const rideHeight = (k: VehicleKind) => GROUND_Y + (k === 'car' ? MODEL_GROUND_OFFSET : k === 'tuktuk' ? -TUKTUK_GROUND : -BIKE_GROUND);
 
 /**
  * Ambient traffic: randomly spawned cars that drive along the real OSM road
@@ -83,7 +88,7 @@ export class TrafficSystem {
   private laneOffset(edge: number, kind: VehicleKind = 'car'): number {
     const w = DEFAULT_ROAD_WIDTH[this.graph.edgeClass(edge)] ?? 5;
     // Bikes keep to the outer edge of the lane.
-    return Math.max(1.0, w / 4) + (kind === 'car' ? 0 : Math.min(0.9, w / 8));
+    return Math.max(1.0, w / 4) + (wide(kind) ? 0 : Math.min(0.9, w / 8));
   }
 
   /** Lane position for a car on edge from→to at distance d. */
@@ -134,9 +139,9 @@ export class TrafficSystem {
       if (this.cars.some((c) => Math.hypot(c.x - g.x(node), c.z - g.z(node)) < 18)) continue;
       if (!isFree(g.x(node), g.z(node))) continue;
       const roll = this.rand();
-      const kind: VehicleKind = roll < MOTORBIKE_SHARE ? 'motorbike' : roll < MOTORBIKE_SHARE + BICYCLE_SHARE ? 'bicycle' : 'car';
-      const color = kind === 'car' ? COLORS[Math.floor(this.rand() * COLORS.length)]! : BIKE_COLORS[Math.floor(this.rand() * BIKE_COLORS.length)]!;
-      const visual = kind === 'car' ? createVehicleModel(color) : createTwoWheelerModel(kind, color);
+      const kind: VehicleKind = roll < MOTORBIKE_SHARE ? 'motorbike' : roll < MOTORBIKE_SHARE + BICYCLE_SHARE ? 'bicycle' : roll < MOTORBIKE_SHARE + BICYCLE_SHARE + TUKTUK_SHARE ? 'tuktuk' : 'car';
+      const color = kind === 'car' ? COLORS[Math.floor(this.rand() * COLORS.length)]! : kind === 'tuktuk' ? TUKTUK_COLORS[Math.floor(this.rand() * TUKTUK_COLORS.length)]! : BIKE_COLORS[Math.floor(this.rand() * BIKE_COLORS.length)]!;
+      const visual = kind === 'car' ? createVehicleModel(color) : kind === 'tuktuk' ? createTuktukModel(color) : createTwoWheelerModel(kind, color);
       const y = rideHeight(kind);
       const body = this.physics.world.createRigidBody(this.physics.R.RigidBodyDesc.kinematicPositionBased().setTranslation(g.x(node), y, g.z(node)));
       const spec = SPECS[kind];
@@ -152,7 +157,7 @@ export class TrafficSystem {
       body.setRotation({x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},true);
       this.scene.add(visual.root);
       if (kind !== 'car') {
-        // A local rider (no name tag) on every bike.
+        // A local rider (no name tag) on every bike and tuktuk.
         c.rider = createCharacter(this.rand() < 0.6 ? 'boy' : 'girl', ' ');
         c.rider.nameTag.visible = false;
         this.scene.add(c.rider.root);
@@ -216,6 +221,7 @@ export class TrafficSystem {
       let target = CRUISE[cls] ?? 6;
       if (c.kind === 'bicycle') target = Math.min(target, 4.2);
       else if (c.kind === 'motorbike') target *= 1.05;
+      else if (c.kind === 'tuktuk') target = Math.min(target * 0.85, 11);
       // Look ahead for obstacles in a cone in front of the car.
       const fx = -Math.sin(c.yaw);
       const fz = -Math.cos(c.yaw);
@@ -226,8 +232,8 @@ export class TrafficSystem {
         const rz = oz - c.z;
         const ahead = rx * fx + rz * fz;
         const side = Math.abs(rx * -fz + rz * fx);
-        const gap = c.kind === 'car' ? 6 : 3.5;
-        if (ahead > 0 && ahead < 14 && side < (c.kind === 'car' ? 2.2 : 1.3)) target = Math.min(target, Math.max(0, (ahead - gap) * 1.2));
+        const gap = wide(c.kind) ? 6 : 3.5;
+        if (ahead > 0 && ahead < 14 && side < (wide(c.kind) ? 2.2 : 1.3)) target = Math.min(target, Math.max(0, (ahead - gap) * 1.2));
       }
       // Slow down before sharp turns at the end of the edge.
       if (c.len - c.dist < 10) target = Math.min(target, 5);
@@ -273,7 +279,7 @@ export class TrafficSystem {
       if (c.rider) {
         c.pedal += dt * c.speed * 1.6;
         if (c.visual.crank) c.visual.crank.rotation.x = -c.pedal / 1.6;
-        seatRider(c.rider, c.visual, c.kind as 'motorbike' | 'bicycle', c.pedal);
+        seatRider(c.rider, c.visual, c.kind as 'motorbike' | 'bicycle' | 'tuktuk', c.pedal);
         c.rider.root.visible = root.visible;
       }
       c.visual.headMat.emissiveIntensity = night ? 2.2 : 0;
