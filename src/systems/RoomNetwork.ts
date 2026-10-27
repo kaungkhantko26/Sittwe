@@ -40,3 +40,10 @@ export async function testRelay(network:RoomNetwork):Promise<boolean> {
   void pc.createOffer().then(offer=>pc.setLocalDescription(offer)).catch(()=>{clearTimeout(timeout);reject(new Error('Relay test could not start.'))});
  });}finally{pc.close()}
 }
+
+/** Prefer TURN over TLS/TCP on retry; UDP candidates may stall on restrictive mobile networks. */
+export function relayFallbackServers(servers:RTCIceServer[]):RTCIceServer[]{
+ const select=(pattern:RegExp)=>servers.flatMap(server=>{const urls=(Array.isArray(server.urls)?server.urls:[server.urls]).filter(url=>pattern.test(url));return urls.length?[{...server,urls}]:[]});
+ const tls=select(/^turns:/i);if(tls.length)return tls;
+ const tcp=select(/^turn:.*[?&]transport=tcp/i);return tcp.length?tcp:servers;
+}

@@ -653,6 +653,7 @@ export class Game {
       this.loading.show(false);
       const spot = this.world.findFreeSpot(x, z);
       this.player.teleport(spot.x, spot.z);
+      this.cam.snapBehind(this.player.yaw);
       this.setDestination(null);
       this.closeMap();
     });
@@ -747,7 +748,8 @@ export class Game {
 
     if (this.cam) {
       if (menuLike) {
-        this.cam.menuOrbit(dt, focus);
+        if(!this.modal.isOpen)this.cam.menuOrbit(dt, focus);
+        inp.consumeMouse();inp.consumeWheel();
       } else if (this.state === 'playing' && this.detailView) {
         this.updateDetailView(dt);
       } else if (this.state === 'playing') {

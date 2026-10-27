@@ -44,6 +44,7 @@ export class PlayerController {
   private readonly curr = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
   private grounded = true;
+  private idleSupportFrames=0;
   /** Facing yaw (radians, 0 = -Z/north). */
   yaw = 0;
   private targetYaw = 0;
@@ -174,6 +175,7 @@ export class PlayerController {
     const minY = GROUND_Y + CENTER_OFFSET;
     const restY = minY + 0.02; // capsule rests one controller offset above the ground
     if (ny < minY - 0.05) ny = restY;
+    const wasGrounded=this.grounded;
     this.grounded = this.kcc.computedGrounded() || ny <= minY + 0.03;
     // On the (flat) ground, hold a constant resting height. Without this the
     // controller's push-down / snap-up alternates every step and the character
@@ -181,6 +183,10 @@ export class PlayerController {
     // Only inside the tiny jitter band and never while the controller is lifting
     // the character (ramps, steps), or climbing would be undone every step.
     if (this.grounded && this.vel.y <= 0 && m.y <= 0.0005 && Math.abs(ny - restY) < 0.03) ny = restY;
+    // Hold still on any settled support, including raised home floors. Never clamp a jump or stairs.
+    const settled=wasGrounded&&this.grounded&&!input.jump&&Math.hypot(this.vel.x,this.vel.z)<.03;
+    this.idleSupportFrames=settled?this.idleSupportFrames+1:0;
+    if(this.idleSupportFrames>8&&Math.abs(ny-t.y)<.035)ny=t.y;
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     if (this.grounded && this.vel.y < 0) this.vel.y = 0;
     this.groundSpeed = Math.hypot(nx - t.x, nz - t.z) / dt;
@@ -209,6 +215,7 @@ export class PlayerController {
   }
 
   teleport(x: number, z: number, yaw?: number, y = 0): void {
+    this.idleSupportFrames=0;
     const ty = GROUND_Y + CENTER_OFFSET + 0.05 + y;
     this.body.setTranslation({ x, y: ty, z }, true);
     this.body.setNextKinematicTranslation({ x, y: ty, z });

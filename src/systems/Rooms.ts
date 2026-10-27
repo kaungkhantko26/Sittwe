@@ -1,4 +1,4 @@
-import {loadRoomNetwork,testRelay,type RoomNetwork} from './RoomNetwork';
+import {loadRoomNetwork,testRelay,relayFallbackServers,type RoomNetwork} from './RoomNetwork';
 import type Peer from 'peerjs';
 import type {DataConnection} from 'peerjs';
 import {MAX_ROOM_PLAYERS,ROOM_VERSION,newRoomCode,roomCode,validSnapshot,type PlayerSnapshot} from './RoomProtocol';
@@ -11,6 +11,7 @@ export class Rooms {
   private seq=0;private hosting=false;private generation=0;
   code:string|null=null;
   status='Solo play';
+  connecting=false;
   relayStatus='Cross-network relay has not been checked.';
   private heartbeat:ReturnType<typeof setInterval>|null=null;
   private lastSend=0;
@@ -28,29 +29,63 @@ export class Rooms {
   constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetwork){}
   get active():boolean{return this.code!==null}
   get count():number{return this.states.size+1}
-  private announce(text:string):void {this.status=text;this.onChange();this.onPanelChange()}
-  async create():Promise<void> {this.leave();const generation=this.generation;const code=newRoomCode();this.announce('Creating room…');try{await this.open('sittwe-v1-'+code,generation);if(generation!==this.generation)return;this.hosting=true;this.code=code;this.startHeartbeat();this.announce(`Room ${code} · 1/${MAX_ROOM_PLAYERS} players`)}catch(e){if(generation===this.generation){this.leave();this.announce((e as Error).message)}}}
+  private announce(text:string):void {if(text===this.status)return;this.status=text;this.onChange();this.onPanelChange()}
+  async create():Promise<void> {
+    this.leave();const generation=this.generation,code=newRoomCode();this.connecting=true;this.announce('Creating room…');
+    try{await this.open('sittwe-v1-'+code,generation);if(generation!==this.generation)return;this.hosting=true;this.code=code;this.connecting=false;this.startHeartbeat();this.announce(`Room ${code} · 1/${MAX_ROOM_PLAYERS} players`)}
+    catch(e){if(generation===this.generation){this.leave();this.announce((e as Error).message)}}
+  }
   async join(raw:string):Promise<void> {
     const code=roomCode(raw);if(!code){this.announce('Enter the six-character room code.');return;}
-    this.leave();const generation=this.generation;this.announce('Connecting to room…');
-    try {
-      await this.open(null,generation);if(generation!==this.generation)return;
-      const connection=this.peer!.connect('sittwe-v1-'+code,{reliable:false,serialization:'json',metadata:{version:ROOM_VERSION}});
-      this.attach(connection,false,generation);
-      await new Promise<void>((resolve,reject)=>{
-        const timeout=setTimeout(()=>reject(new Error('Could not reach this room. Check the code, keep the host online, and run Test relay for different Wi-Fi/mobile networks.')),35000);
-        connection.on('data',raw=>{if(generation!==this.generation)return;const p=raw as {type?:string;state?:unknown};if(p?.type==='welcome'&&(p as {version?:number}).version===ROOM_VERSION&&validSnapshot(p.state)){clearTimeout(timeout);this.onJoin(p.state);resolve()}});
-        connection.on('error',()=>{clearTimeout(timeout);reject(new Error('The room connection failed. Try another network.'))});
-      });
-      if(generation!==this.generation)return;this.code=code;this.startHeartbeat();this.announce(`Room ${code} · connected`);
-    }catch(e){if(generation===this.generation){this.leave();this.announce((e as Error).message)}}
+    for(let attempt=0;attempt<2;attempt++){
+      this.leave();const generation=this.generation;this.connecting=true;this.announce(attempt?'Retrying through TURN relay…':'Connecting to room…');
+      try{
+        await this.open(null,generation,attempt===1);if(generation!==this.generation)return;
+        const c=this.peer!.connect('sittwe-v1-'+code,{reliable:true,serialization:'json',metadata:{version:ROOM_VERSION}});
+        this.attach(c,false,generation);
+        const state=await this.waitForHost(c,generation);
+        if(generation!==this.generation)return;
+        this.code=code;this.connecting=false;this.startHeartbeat();this.announce(`Room ${code} · connected`);this.onJoin(state);return;
+      }catch(e){
+        if(generation!==this.generation)return;
+        const message=(e as Error).message;
+        if(attempt===0&&!message.includes('not online')&&!message.includes('different game version'))continue;
+        this.leave();this.announce(message);return;
+      }
+    }
   }
-  private async open(id:string|null,generation:number):Promise<void> {
+  private waitForHost(c:DataConnection,generation:number):Promise<PlayerSnapshot>{
+    const peer=this.peer!;
+    return new Promise((resolve,reject)=>{
+      let finished=false;
+      const finish=(state:PlayerSnapshot|null,message='Connection closed before the room handshake completed.')=>{
+        if(finished)return;finished=true;clearTimeout(timeout);clearInterval(retry);
+        c.off('data',data);c.off('close',closed);c.off('error',closed);peer.off('error',peerError);
+        if(state)resolve(state);else reject(new Error(message));
+      };
+      const data=(raw:unknown)=>{
+        if(generation!==this.generation){finish(null,'Room connection cancelled.');return;}
+        if(!raw||typeof raw!=='object')return;
+        const p=raw as {type?:string;version?:number;state?:unknown;players?:Array<{id:string;state:unknown}>};
+        if(p.version!==undefined&&p.version!==ROOM_VERSION){finish(null,'The host is using a different game version. Both players should refresh the site.');return;}
+        if(p.type==='welcome'&&validSnapshot(p.state))finish(p.state);
+        // A full world snapshot also acknowledges a live host if a welcome was delayed.
+        if(p.type==='world'&&Array.isArray(p.players)){const host=p.players.find(v=>v&&v.id===c.peer);if(host&&validSnapshot(host.state))finish(host.state);}
+      };
+      const closed=()=>finish(null);
+      const peerError=(error:{type?:string})=>finish(null,error.type==='peer-unavailable'?'This room is not online. Ask the host to create a new room and share its current code.':'The room service connection failed. Please retry.');
+      const timeout=setTimeout(()=>finish(null,'The host did not respond, including through TURN. Keep the host’s game open, refresh both devices and create a new room.'),15000);
+      const retry=setInterval(()=>{if(generation!==this.generation)finish(null,'Room connection cancelled.');else this.send(c,{type:'hello',version:ROOM_VERSION});},350);
+      c.on('data',data);c.on('close',closed);c.on('error',closed);peer.on('error',peerError);
+      this.send(c,{type:'hello',version:ROOM_VERSION});
+    });
+  }
+  private async open(id:string|null,generation:number,relayOnly=false):Promise<void> {
     if(typeof RTCPeerConnection==='undefined')throw new Error('This browser does not support multiplayer WebRTC. Solo play is available.');
     const {default:PeerClient}=await import('peerjs');if(generation!==this.generation)return;
     const network=await this.network();if(generation!==this.generation)return;
     this.relayStatus=network.hasRelay?'TURN relay configured; direct or relayed connections available.':'Relay setup required for networks that block direct connections.';this.onPanelChange();
-    const options={secure:true,debug:0,config:{iceServers:network.iceServers,iceTransportPolicy:network.iceTransportPolicy}};
+    const options={secure:true,debug:0,config:{iceServers:relayOnly?relayFallbackServers(network.iceServers):network.iceServers,iceTransportPolicy:relayOnly&&network.hasRelay?'relay' as const:network.iceTransportPolicy}};
     const peer=id?new PeerClient(id,options):new PeerClient(options);this.peer=peer;
     await new Promise<void>((resolve,reject)=>{
       const timeout=setTimeout(()=>reject(new Error('Room service is unavailable. Try again shortly.')),15000);
@@ -58,7 +93,7 @@ export class Rooms {
       peer.on('error',()=>{clearTimeout(timeout);reject(new Error('Could not connect to the room service. Check your internet connection.'))});
     });
     peer.on('connection',c=>{if(!this.hosting||this.links.size>=MAX_ROOM_PLAYERS-1||c.metadata?.version!==ROOM_VERSION){c.on('open',()=>c.close());return;}this.attach(c,true,generation)});
-    peer.on('disconnected',()=>{if(this.active)this.announce(`Room ${this.code} · signaling disconnected; existing players can continue`)});
+    peer.on('disconnected',()=>{if(this.active&&generation===this.generation){this.announce(`Room ${this.code} · reconnecting room service…`);try{peer.reconnect()}catch{/* Existing player channels can continue. */}}});
   }
   private send(c:DataConnection,payload:unknown):void {if(c.open&&c.dataChannel?.readyState==='open'&&c.dataChannel.bufferedAmount<32_768){try{c.send(payload)}catch{/* A closed channel must not interrupt rendering. */}}}
   private async inspectConnection(c:DataConnection,generation:number):Promise<void>{
@@ -77,8 +112,9 @@ export class Rooms {
     this.links.set(c.peer,c);
     c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()});void this.inspectConnection(c,generation)});
     c.on('data',raw=>{
-      if(generation!==this.generation||!raw||typeof raw!=='object')return;
+      if(generation!==this.generation||this.links.get(c.peer)!==c||!raw||typeof raw!=='object')return;
       const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>};
+      if(p.type==='hello'&&this.hosting){this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local()});return;}
       if(p.type==='welcome')return;
       if(p.type==='state'&&this.hosting&&validSnapshot(p.state)){
         const last=this.states.get(c.peer);if(last&&p.state.seq<=last.state.seq)return;
@@ -90,7 +126,7 @@ export class Rooms {
         this.onPlayers(players);this.announce(`Room ${this.code??'joining'} · ${players.length+1}/${MAX_ROOM_PLAYERS} players`);
       }
     });
-    const close=()=>{if(generation!==this.generation)return;this.links.delete(c.peer);this.states.delete(c.peer);if(!this.hosting){this.leave();this.announce('The host left. You are back in solo play.')}else this.onPlayers([...this.states].map(([id,v])=>({id,state:v.state})))};
+    const close=()=>{if(generation!==this.generation||this.links.get(c.peer)!==c)return;this.links.delete(c.peer);this.states.delete(c.peer);if(!this.hosting&&this.active){this.leave();this.announce('The host left. You are back in solo play.')}else this.onPlayers([...this.states].map(([id,v])=>({id,state:v.state})))};
     c.on('close',close);c.on('error',close);
   }
   update(_dt:number):void {
@@ -106,7 +142,7 @@ export class Rooms {
     }else for(const c of this.links.values())this.send(c,{type:'state',state:local});
   }
   leave():void {
-    this.generation++;this.code=null;this.hosting=false;
+    this.generation++;this.code=null;this.hosting=false;this.connecting=false;
     if(this.heartbeat)clearInterval(this.heartbeat);this.heartbeat=null;
     for(const c of this.links.values())c.close();this.links.clear();this.states.clear();
     this.peer?.destroy();this.peer=null;this.onPlayers([]);this.announce('Solo play');

@@ -38,6 +38,7 @@ export class ThirdPersonCamera {
   private idleTime = 0;
   private cinematicT = 0;
   private initialized = false;
+  private clearTime=0;
   private readonly tmp = new THREE.Vector3();
 
   constructor(
@@ -94,7 +95,7 @@ export class ThirdPersonCamera {
 
     if (t.inVehicle) {
       if (this.vehicleMode === 'hood') {
-        this.placeFirstPerson(t.pivot, t.heading, 0.05, 0.9);
+        this.placeFirstPerson(this.smoothPivot, t.heading, 0.05, 0.9);
         return;
       }
       if (this.vehicleMode === 'cinematic') {
@@ -112,7 +113,7 @@ export class ThirdPersonCamera {
       pitch = this.pitch;
       lookAhead = Math.min(t.speed * 0.08, 2.5);
     } else if (this.mode === 'first') {
-      this.placeFirstPerson(t.pivot, this.yaw, 0, this.pitch);
+      this.placeFirstPerson(this.smoothPivot, this.yaw, 0, this.pitch);
       return;
     } else if (this.mode === 'cinematic') {
       this.cinematic(dt, t.pivot, 9, 0.12);
@@ -124,7 +125,8 @@ export class ThirdPersonCamera {
     const dir = this.tmp.set(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp).normalize();
     // Collision: cast from pivot toward the camera.
     const hit = this.castFrom(this.smoothPivot, dir, dist + 0.3, t.ignore);
-    const allowed = hit !== null ? Math.max(0.6, hit - 0.35) : dist;
+    this.clearTime=hit===null?this.clearTime+dt:0;
+    const allowed = hit !== null ? Math.max(0.6, hit - 0.35) : this.clearTime<.18?Math.min(this.currentDist,dist):dist;
     // Pull in fast, recover slowly.
     const k = allowed < this.currentDist ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 3);
     this.currentDist += (allowed - this.currentDist) * k;

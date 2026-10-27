@@ -11,7 +11,7 @@ export function roomPanel(rooms:Rooms,play:()=>void):HTMLElement {
  const leave=h('button.btn',{onclick:()=>rooms.leave()},'Leave room');
  const start=h('button.btn.primary',{onclick:play},'Back to game');
  const node=h('div.rooms',{},h('p',{},'Explore Sittwe with friends. Create a room and share its code, or enter a friend’s code below.'),status,h('div.row.gap',{},create,copy),h('label',{},'Room code',code),h('div.row.gap',{},join,leave,start),h('div.row.gap',{},test),relay,h('p.small.muted',{},'Up to 8 players. Keep the host’s tab open. Rooms use an internet connection; some networks may block direct connections. City NPCs and personal homes remain local.'));
- const update=()=>{status.textContent=rooms.status;relay.textContent=rooms.relayStatus;test.disabled=rooms.relayStatus.includes('…');copy.disabled=!rooms.active;leave.disabled=!rooms.active;create.disabled=rooms.active||rooms.status.includes('…');join.disabled=rooms.active||rooms.status.includes('…');};
+ const update=()=>{status.textContent=rooms.status;relay.textContent=rooms.relayStatus;test.disabled=rooms.relayStatus.includes('…');copy.disabled=!rooms.active;leave.textContent=rooms.connecting?'Cancel connection':'Leave room';leave.disabled=!rooms.active&&!rooms.connecting;create.disabled=rooms.active||rooms.connecting;join.disabled=rooms.active||rooms.connecting;};
  rooms.onPanelChange=()=>{if(node.isConnected)update()};update();
  return node;
 }
