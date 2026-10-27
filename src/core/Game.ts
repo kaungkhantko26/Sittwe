@@ -541,6 +541,8 @@ export class Game {
 
   private onKeyDown(e: KeyboardEvent): void {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    // Any key press counts as a user gesture: grab the mouse so look needs no click.
+    if (this.state === 'playing' && e.code !== 'Escape' && !this.modal.isOpen) this.input.requestPointerLock();
     if (e.code === 'F5' && (this.state === 'playing' || this.state === 'paused')) {
       e.preventDefault();
       this.saveGame(true);
@@ -867,6 +869,7 @@ export class Game {
 
   private update(dt: number, alpha: number): void {
     this.perf.frame(dt);
+    this.input.freeLook = this.state === 'playing' && !this.detailView;
     if(this.state==='playing'&&!document.hidden&&this.settings.get().adaptiveResolution){
       const scale=this.adaptive.sample(dt);if(scale!==null){this.renderer.setPixelRatio(QUALITY_PRESETS[this.settings.get().quality].pixelRatio*scale);this.renderer.resize();}
     }

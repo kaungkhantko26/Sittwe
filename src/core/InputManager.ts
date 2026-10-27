@@ -9,6 +9,8 @@ export class InputManager {
   private mouseDY = 0;
   private wheel = 0;
   enabled = true;
+  /** Turn the camera with plain mouse movement when pointer lock isn't held (no click needed). */
+  freeLook = false;
   readonly touchMove={x:0,y:0};
   private readonly touchKeys=new Set<string>();
   setTouchKey(code:string,down:boolean):void {if(down){if(!this.touchKeys.has(code))this.pressed.add(code);this.touchKeys.add(code)}else this.touchKeys.delete(code)}
@@ -41,7 +43,7 @@ export class InputManager {
   };
 
   private readonly onMouseMove = (e: MouseEvent) => {
-    if (!this.isPointerLocked()) return;
+    if (!this.isPointerLocked() && !(this.freeLook && !overControl(e.target))) return;
     // Ignore absurd spikes some browsers emit when (re)acquiring pointer lock.
     if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
     this.mouseDX += e.movementX;
@@ -109,6 +111,11 @@ export class InputManager {
     document.removeEventListener('mousemove', this.onMouseMove);
     this.target.removeEventListener('wheel', this.onWheel);
   }
+}
+
+/** Buttons, links and fields: moving over them shouldn't turn the camera. */
+function overControl(t: EventTarget | null): boolean {
+  return t instanceof Element && !!t.closest('button, a, input, select, textarea, [role="button"]');
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
