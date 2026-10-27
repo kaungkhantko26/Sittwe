@@ -60,7 +60,7 @@ const STRINGS = {
   saved: { en: 'Game saved', rki: 'ဂိမ်းကို သိမ်းထားပြီးယာ' },
   saveFailed: { en: 'Could not save (storage unavailable)', rki: 'ဂိမ်းကို သိမ်းထားလို့ မရပါ' },
   corruptSave: { en: 'Saved game could not be read and was reset.', rki: 'သိမ်းထားရေ ဂိမ်းကို ဖတ်လို့မရလို့ အစက ပြန်စထားရေ။' },
-  resetConfirm: { en: 'Reset your saved game? This cannot be undone.', rki: 'သိမ်းထားရေ ဂိမ်းကို ဖျက်ဖို့လား။ ဖျက်ပြီးကေ ပြန်ယူလို့ မရပါ။' },
+  resetConfirm: { en: 'Reset your saved game? This cannot be undone.', rki: 'သိမ်းထားရေ ဂိမ်းကို ဖျက်ဖို့သေချာပါလာ' },
   clickToPlay: { en: 'Click to look around', rki: 'ပတ်ဝန်းကျင်ကို ကြည့်ဖို့ နှိပ်ပါ' },
   carReset: { en: 'Vehicle reset upright', rki: 'ကားကို ပြန်တည့်ထားပြီးယာ' },
   pressRToReset: { en: 'Press R to flip the car back', rki: 'ကားကို ပြန်တည့်ဖို့ R ကိုနှိပ်ပါ' },
