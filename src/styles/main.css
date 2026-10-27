@@ -345,3 +345,27 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 .player-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.05); border-left: 4px solid var(--pc); }
 .player-row > .row { grid-column: 1 / -1; flex-wrap: wrap; }
 .player-name { font-weight: 600; }
+
+/* Missions: HUD badge, tracker and mission board. */
+.mission-badge { position: absolute; left: 16px; top: 162px; font-size: 12px; padding: 7px 12px; }
+.mission-tracker { position: absolute; right: 16px; top: 268px; width: 260px; padding: 10px 12px; border-radius: 12px; background: rgba(14, 20, 26, 0.82); border: 1px solid rgba(245, 194, 75, 0.35); box-shadow: 0 8px 26px rgba(0,0,0,.35); font-size: 13px; display: grid; gap: 6px; pointer-events: auto; }
+.mission-tracker.hidden { display: none; }
+.mt-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; color: #f5c24b; }
+.mt-step { color: rgba(255,255,255,.6); font-weight: 600; }
+.mt-wait { color: #ffcf8a; font-size: 12px; }
+.mt-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: rgba(255,255,255,.75); }
+.missions { display: grid; gap: 12px; }
+.mission-wallet { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 10px; background: rgba(245,194,75,.12); border: 1px solid rgba(245,194,75,.35); }
+.mission-list { display: grid; gap: 10px; }
+.mission-card { padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); display: grid; gap: 6px; }
+.mission-card.festival { background: linear-gradient(135deg, rgba(255,150,50,.16), rgba(255,255,255,.04)); border-color: rgba(255,170,80,.35); }
+.mission-card.locked { opacity: .6; }
+.mission-card h3 { margin: 0; font-size: 15px; }
+.mission-card p { margin: 0; }
+.mission-head { display: flex; gap: 10px; align-items: flex-start; }
+.mission-icon { font-size: 26px; line-height: 1; }
+.mission-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.08); }
+.tag.fest { background: rgba(255,150,50,.25); }
+.tag.done { background: rgba(110,210,140,.25); }
+@media (max-width:600px) { .mission-badge { top: 186px; left: 12px; font-size: 10px; } .mission-tracker { right: 8px; top: auto; bottom: 150px; width: min(240px, calc(100vw - 16px)); font-size: 12px; } }

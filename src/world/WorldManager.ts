@@ -19,8 +19,9 @@ import { PolygonIndex, SegmentIndex } from './SpatialIndex';
 import { buildStreetSigns, disposeStreetSigns } from './StreetSigns';
 import { buildStreetLights } from './StreetFurniture';
 import { buildLanduse, createGroundPlane } from './TerrainGenerator';
-import { buildVegetation, placeTrees } from './VegetationGenerator';
+import { buildVegetation, placeCoastalTrees, placeTrees } from './VegetationGenerator';
 import { buildSea, buildWater, waterMaterial } from './WaterGenerator';
+import { OceanWaves } from './OceanWaves';
 
 export interface WorldOptions {
   /** Chunks kept visible around the player (Chebyshev radius). */
@@ -69,6 +70,10 @@ export class WorldManager {
   private readonly jobs: BuildJob[] = [];
   private readonly available: Set<string>;
   private readonly seaPolys: Array<{ rings: Pt[][]; bounds: Rect }>;
+  /** Sea coastline segments [x1,z1,x2,z2,…], for coastal palms and mangroves. */
+  private readonly coastSegments: Float32Array;
+  /** Rolling waves and shore foam near the player (browser only). */
+  private readonly ocean: OceanWaves | null;
   private readonly seaMesh: THREE.Mesh | null;
   private readonly ground: THREE.Mesh;
   private home: HomeObjects | null = null;
@@ -108,8 +113,19 @@ export class WorldManager {
       const rings = poly.map(flatToPts);
       return { rings, bounds: ringBounds(rings[0]!) };
     });
+    const seg: number[] = [];
+    // Skip the artificial edges where the sea polygon is cut at the map border.
+    const onEdge = (q: Pt) => Math.abs(q[0] - b.minX) < 1 || Math.abs(q[0] - b.maxX) < 1 || Math.abs(q[1] - b.minZ) < 1 || Math.abs(q[1] - b.maxZ) < 1;
+    for (const p of this.seaPolys) for (const r of p.rings) for (let i = 0; i < r.length; i++) {
+      const a = r[i]!, c = r[(i + 1) % r.length]!;
+      if (onEdge(a) && onEdge(c)) continue;
+      seg.push(a[0], a[1], c[0], c[1]);
+    }
+    this.coastSegments = Float32Array.from(seg);
     this.seaMesh = buildSea(sea);
     if (this.seaMesh) this.root.add(this.seaMesh);
+    this.ocean = typeof document !== 'undefined' && this.seaPolys.length ? new OceanWaves(this.seaPolys) : null;
+    if (this.ocean) this.root.add(this.ocean.mesh);
 
     this.chunks = new ChunkManager<ChunkData>({
       chunkSize: manifest.chunkSize,
@@ -132,6 +148,7 @@ export class WorldManager {
     this.playerX = playerX;
     this.playerZ = playerZ;
     waterMaterial().uniforms['uTime']!.value = this.time;
+    this.ocean?.update(playerX, playerZ, 0);
     this.chunks.update(playerX, playerZ);
     this.runJobs();
     if (this.home && this.homeLocation) {
@@ -314,6 +331,14 @@ export class WorldManager {
       v.dispose();
     }
     const trees = placeTrees(c.key, c.data.trees, c.data.landuse, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x,z)=>this.inHomePlot(x,z)||this.landmarkReserved(x,z), isWater: (x, z) => this.inHomePlot(x,z) || this.landmarkReserved(x,z) || this.isWater(x, z, c) }, this.opts.vegetationDensity);
+    const size = this.manifest.chunkSize, bounds = { minX: c.cx * size, maxX: (c.cx + 1) * size, minZ: c.cz * size, maxZ: (c.cz + 1) * size };
+    const coast: number[] = [];
+    const cs = this.coastSegments;
+    for (let i = 0; i < cs.length; i += 4) {
+      if (Math.max(cs[i]!, cs[i + 2]!) < bounds.minX || Math.min(cs[i]!, cs[i + 2]!) > bounds.maxX || Math.max(cs[i + 1]!, cs[i + 3]!) < bounds.minZ || Math.min(cs[i + 1]!, cs[i + 3]!) > bounds.maxZ) continue;
+      coast.push(cs[i]!, cs[i + 1]!, cs[i + 2]!, cs[i + 3]!);
+    }
+    if (coast.length) trees.push(...placeCoastalTrees(c.key, coast, bounds, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x, z) => this.inHomePlot(x, z) || this.landmarkReserved(x, z), isWater: (x, z) => this.isWater(x, z, c) }, this.opts.vegetationDensity));
     const veg = buildVegetation(trees);
     c.vegetation = veg.meshes;
     for (const mesh of veg.meshes) c.detail.add(mesh);

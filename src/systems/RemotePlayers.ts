@@ -7,11 +7,12 @@ import type {PlayerRig} from '../player/PlayerModel';
 import {createVehicleModel,disposeVehicleModel,type VehicleVisual} from '../vehicles/VehicleModel';
 import type {PlayerSnapshot} from './RoomProtocol';
 import type {FoundPlayer} from './PlayerFinder';
+import {SWIM_SINK} from '../player/PlayerController';
 import {createHeadlightBeams,type HeadlightBeams} from '../vehicles/HeadlightBeams';
 import {BoatLook} from '../vehicles/BoatLook';
 /** Real spotlights shared by the nearest remote cars with headlights on (fixed count: no shader recompiles). */
 const REMOTE_LIGHTS=3;
-interface Remote {rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
+interface Remote {swimBlend?:number;rig:PlayerRig;anim:PlayerAnimations;car:VehicleVisual|null;beams?:HeadlightBeams;boat?:BoatLook;color?:number;state:PlayerSnapshot;seq:number;track:MotionTrack}
 export class RemotePlayers {
  private players=new Map<string,Remote>();
  private seats:RideSeat[]=[];
@@ -69,7 +70,11 @@ export class RemotePlayers {
    }else {
     if(p.car)p.car.root.visible=false;
     if(s.dancing&&!p.anim.dancing)p.anim.startDance();if(!s.dancing&&p.anim.dancing)p.anim.stopDance();
-    p.anim.update(dt,s.speed,true,0);
+    // Swimming friends sink to their shoulders and swim, as they do on their own screen.
+    const blend=p.swimBlend=(p.swimBlend??0)+((s.swim?1:0)-(p.swimBlend??0))*Math.min(1,dt*4);
+    if(pose)root.position.y-=SWIM_SINK*blend;p.rig.nameTag.position.y=2.42-.75*blend;
+    if(blend>.5&&p.anim.dancing)p.anim.stopDance();
+    p.anim.update(dt,s.speed,true,0,blend);
    }
   }
   // Real spotlights for the nearest lit cars, so their beams light the road and buildings.

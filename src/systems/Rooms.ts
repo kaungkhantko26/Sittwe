@@ -1,5 +1,5 @@
 import {RideSeats,validRideSeats,type RideSeat,type RoomPlayer} from './RideSeats';
-import {loadRoomNetwork,testRelay,relayFallbackServers,type RoomNetwork} from './RoomNetwork';
+import {loadRoomNetworkResilient,testRelay,relayFallbackServers,type RoomNetwork} from './RoomNetwork';
 import type Peer from 'peerjs';
 import type {DataConnection} from 'peerjs';
 import {MAX_ROOM_PLAYERS,ROOM_VERSION,newRoomCode,roomCode,validEnvironment,validSnapshot,type PlayerSnapshot,type RoomEnvironment} from './RoomProtocol';
@@ -46,10 +46,18 @@ export class Rooms {
   private lastSend=0;
   async checkRelay():Promise<void>{
     this.relayStatus='Testing relay…';this.onPanelChange();
-    try{const config=await this.network();this.relayStatus=!config.hasRelay?'Relay setup is required for blocked Wi-Fi/mobile networks.':await testRelay(config)?'TURN relay reachable — authentication and allocation passed.':'No TURN relay reachable from this network. Check relay credentials, quota and TCP/TLS support.';}
+    try{const config=await this.cachedNetwork(true);this.relayStatus=config.note&&!config.hasRelay?config.note:!config.hasRelay?'Relay setup is required for blocked Wi-Fi/mobile networks.':await testRelay(config)?'TURN relay reachable — authentication and allocation passed.':'No TURN relay reachable from this network. Check relay credentials, quota and TCP/TLS support.';}
     catch{this.relayStatus='Relay configuration or service could not be reached.';}
     this.onPanelChange();
   }
+  private net:{at:number;value:Promise<RoomNetwork>}|null=null;
+  /** Relay settings are fetched once and reused for 5 minutes, so creating or joining does not wait on a slow relay every time. */
+  private cachedNetwork(fresh=false):Promise<RoomNetwork>{
+    if(fresh||!this.net||performance.now()-this.net.at>300_000)this.net={at:performance.now(),value:this.network()};
+    return this.net.value;
+  }
+  /** Starts checking the relay early (when the room panel opens). */
+  prefetchNetwork():void{void this.cachedNetwork();}
   private startHeartbeat():void{if(this.heartbeat)clearInterval(this.heartbeat);this.lastSend=0;this.heartbeat=setInterval(()=>this.update(0),1000/12);}
   onChange:()=>void=()=>{};
   onPanelChange:()=>void=()=>{};
@@ -60,10 +68,17 @@ export class Rooms {
   /** Called on joiners with the host's environment, and with null when they stop following a host. */
   onEnvironment:(env:RoomEnvironment|null)=>void=()=>{};
   private followingHost=false;
+  /** Shared game state the host sends with every update (missions), and guests' requests back to the host. */
+  gameState:()=>unknown=()=>null;
+  onGameState:(data:unknown)=>void=()=>{};
+  onGameMessage:(peerId:string,data:unknown)=>void=()=>{};
+  get isHost():boolean{return this.hosting}
+  /** Guest → host message (ignored when not in a room or when hosting). */
+  sendToHost(data:unknown):void{if(!this.active||this.hosting)return;for(const c of this.links.values())this.send(c,{type:'game',data});}
   /** True while a joined (non-host) player's time and weather come from the host. */
   get followsHost():boolean{return this.followingHost}
   private receiveEnvironment(raw:unknown):void{if(!this.hosting&&validEnvironment(raw)){this.followingHost=true;this.onEnvironment(raw);}}
-  constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetwork){}
+  constructor(private readonly local:()=>PlayerSnapshot,private readonly network:()=>Promise<RoomNetwork>=loadRoomNetworkResilient){}
   get active():boolean{return this.code!==null}
   /** This player's room id (null when not connected). */
   get selfId():string|null{return this.peer?.id??null}
@@ -122,8 +137,8 @@ export class Rooms {
   private async open(id:string|null,generation:number,relayOnly=false):Promise<void> {
     if(typeof RTCPeerConnection==='undefined')throw new Error('This browser does not support multiplayer WebRTC. Solo play is available.');
     const {default:PeerClient}=await import('peerjs');if(generation!==this.generation)return;
-    const network=await this.network();if(generation!==this.generation)return;
-    this.relayStatus=network.hasRelay?'TURN relay configured; direct or relayed connections available.':'Relay setup required for networks that block direct connections.';this.onPanelChange();
+    const network=await this.cachedNetwork();if(generation!==this.generation)return;
+    this.relayStatus=network.note??(network.hasRelay?'TURN relay configured; direct or relayed connections available.':'Relay setup required for networks that block direct connections.');this.onPanelChange();
     const options={secure:true,debug:0,config:{iceServers:relayOnly?relayFallbackServers(network.iceServers):network.iceServers,iceTransportPolicy:relayOnly&&network.hasRelay?'relay' as const:network.iceTransportPolicy}};
     const peer=id?new PeerClient(id,options):new PeerClient(options);this.peer=peer;
     await new Promise<void>((resolve,reject)=>{
@@ -152,8 +167,9 @@ export class Rooms {
     c.on('open',()=>{if(generation!==this.generation){c.close();return;}if(incoming)this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local(),env:this.environment()});void this.inspectConnection(c,generation)});
     c.on('data',raw=>{
       if(generation!==this.generation||this.links.get(c.peer)!==c||!raw||typeof raw!=='object')return;
-      const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>;driverId?:string;seats?:unknown;message?:string;env?:unknown};
+      const p=raw as {type?:string;state?:unknown;players?:Array<{id:string;state:unknown}>;driverId?:string;seats?:unknown;message?:string;env?:unknown;game?:unknown;data?:unknown};
       if(p.type==='ride-request'&&this.hosting&&typeof p.driverId==='string'){const error=this.rideSeats.request(c.peer,p.driverId,this.roster());if(error)this.send(c,{type:'ride-error',message:error});return;}
+      if(p.type==='game'&&this.hosting){this.onGameMessage(c.peer,p.data);return;}
       if(p.type==='ride-leave'&&this.hosting){this.rideSeats.seats.delete(c.peer);return;}
       if(p.type==='ride-error'&&!this.hosting&&typeof p.message==='string'){if(this.rideRequestTimer)clearTimeout(this.rideRequestTimer);this.rideRequestTimer=null;this.onRideMessage(p.message.slice(0,150));return;}
       if(p.type==='hello'&&this.hosting){this.send(c,{type:'welcome',version:ROOM_VERSION,state:this.local(),env:this.environment()});return;}
@@ -167,6 +183,7 @@ export class Rooms {
         this.states.clear();for(const v of players)this.states.set(v.id,{state:v.state,seen:performance.now()});
         if(validRideSeats(p.seats))this.publishSeats(p.seats);
         this.receiveEnvironment(p.env);
+        if(p.game!==undefined)this.onGameState(p.game);
         this.onPlayers(players);this.announce(`Room ${this.code??'joining'} · ${players.length+1}/${MAX_ROOM_PLAYERS} players`);
       }
     });
@@ -181,7 +198,7 @@ export class Rooms {
       const now=performance.now();for(const [id,v] of this.states)if(now-v.seen>60000){this.states.delete(id);this.links.get(id)?.close()}
       const players=[{id:this.peer!.id,state:local},...[...this.states].map(([id,v])=>({id,state:v.state}))];
       this.rideSeats.reconcile(players);const seats=[...this.rideSeats.seats.values()];this.publishSeats(seats);
-      const env=this.environment();for(const c of this.links.values())this.send(c,{type:'world',version:ROOM_VERSION,players,seats,env});
+      const env=this.environment(),game=this.gameState();for(const c of this.links.values())this.send(c,{type:'world',version:ROOM_VERSION,players,seats,env,game});
       this.onPlayers(players.filter(p=>p.id!==this.peer!.id));
       const text=`Room ${this.code} · ${players.length}/${MAX_ROOM_PLAYERS} players`;if(text!==this.status)this.announce(text);
     }else for(const c of this.links.values())this.send(c,{type:'state',state:local});

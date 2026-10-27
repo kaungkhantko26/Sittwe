@@ -4,6 +4,7 @@ import {byDistance,playerColor,type FindMode,type FoundPlayer} from '../systems/
 /** Finding other players from the room panel. */
 export interface PlayerFinderHooks {list():FoundPlayer[];me():{x:number;z:number};find(id:string,mode:FindMode):void}
 export function roomPanel(rooms:Rooms,play:()=>void,finder?:PlayerFinderHooks):HTMLElement {
+ rooms.prefetchNetwork();
  const status=h('p.room-status',{'role':'status'},rooms.status);
  const relay=h('p.small.muted',{'role':'status'},rooms.relayStatus);
  const test=h('button.btn',{onclick:()=>void rooms.checkRelay()},'Test relay');

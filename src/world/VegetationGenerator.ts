@@ -67,6 +67,7 @@ const M = () => new THREE.Matrix4();
 let palmGeo: THREE.BufferGeometry | null = null;
 let broadleafGeo: THREE.BufferGeometry | null = null;
 let bushGeo: THREE.BufferGeometry | null = null;
+let mangroveGeo: THREE.BufferGeometry | null = null;
 
 /** Low-poly coconut palm, ~8 m tall. */
 export function palmGeometry(): THREE.BufferGeometry {
@@ -130,10 +131,75 @@ export function bushGeometry(): THREE.BufferGeometry {
   return bushGeo;
 }
 
+/** Mangrove clump, ~4.5 m tall: arching stilt roots under a dense, low crown. */
+export function mangroveGeometry(): THREE.BufferGeometry {
+  if (mangroveGeo) return mangroveGeo;
+  const parts: THREE.BufferGeometry[] = [
+    colored(new THREE.CylinderGeometry(0.12, 0.2, 2.6, 5), 0x5d4a38, M().makeTranslation(0, 1.9, 0)),
+  ];
+  // Stilt (prop) roots arching out from the trunk into the mud.
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + (i % 2) * 0.2;
+    const root = new THREE.CylinderGeometry(0.045, 0.06, 1.9, 4);
+    const m = M().makeRotationY(a).multiply(M().makeTranslation(0.62, 0.62, 0)).multiply(M().makeRotationZ(0.62 + (i % 3) * 0.08));
+    parts.push(colored(root, 0x6a5643, m));
+  }
+  parts.push(colored(new THREE.IcosahedronGeometry(1.9, 0), 0x335f2e, M().makeTranslation(0, 3.5, 0).multiply(M().makeScale(1.35, 0.62, 1.35))));
+  parts.push(colored(new THREE.IcosahedronGeometry(1.3, 0), 0x3d6d33, M().makeTranslation(0.9, 3.9, 0.4).multiply(M().makeScale(1.2, 0.7, 1.2))));
+  parts.push(colored(new THREE.IcosahedronGeometry(1.2, 0), 0x2f5729, M().makeTranslation(-0.8, 3.7, -0.5).multiply(M().makeScale(1.2, 0.65, 1.2))));
+  mangroveGeo = merge(parts);
+  return mangroveGeo;
+}
+
+/**
+ * Generated trees along the real sea coastline (decorative, like the filler
+ * trees): coconut palms a few metres inland on built-up stretches, and
+ * mangrove clumps at the water's edge on wild, building-free shores.
+ * `coast` holds coastline segments as [x1, z1, x2, z2] near this chunk.
+ */
+export function placeCoastalTrees(chunkKey: string, coast: number[], bounds: { minX: number; maxX: number; minZ: number; maxZ: number }, ctx: PlacementContext, density: number): TreeInstance[] {
+  const out: TreeInstance[] = [];
+  if (density <= 0) return out;
+  const rand = rng(hashString(`coast:${chunkKey}`));
+  const inside = (x: number, z: number) => x >= bounds.minX && x < bounds.maxX && z >= bounds.minZ && z < bounds.maxZ;
+  const spacing = 13 / Math.min(1.5, density);
+  for (let i = 0; i < coast.length; i += 4) {
+    const ax = coast[i]!, az = coast[i + 1]!, bx = coast[i + 2]!, bz = coast[i + 3]!;
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1) continue;
+    const ux = (bx - ax) / len, uz = (bz - az) / len;
+    for (let t = rand() * spacing; t < len; t += spacing * (0.7 + rand() * 0.6)) {
+      const px = ax + ux * t, pz = az + uz * t;
+      if (!inside(px, pz)) continue;
+      // Which side of the coastline is land?
+      let nx = -uz, nz = ux;
+      if (ctx.isWater(px + nx * 6, pz + nz * 6)) { nx = -nx; nz = -nz; }
+      if (ctx.isWater(px + nx * 6, pz + nz * 6)) continue; // a thin spit: skip
+      const wild = !ctx.buildings.hit(px + nx * 20, pz + nz * 20, 18) && !ctx.roads.hit(px + nx * 10, pz + nz * 10, 8);
+      if (wild) {
+        // Mangroves stand in the shallows, in small groups.
+        const n = 1 + Math.floor(rand() * 3);
+        for (let k = 0; k < n; k++) {
+          const d = -(0.5 + rand() * 4), side = (rand() - 0.5) * 6;
+          const x = px + nx * d + ux * side, z = pz + nz * d + uz * side;
+          if (ctx.isReserved?.(x, z) || ctx.roads.hit(x, z, 2)) continue;
+          out.push({ x, z, type: 3, scale: 0.75 + rand() * 0.5, rot: rand() * Math.PI * 2, mapped: false });
+        }
+      } else if (rand() < 0.7) {
+        const d = 3 + rand() * 6;
+        const x = px + nx * d, z = pz + nz * d;
+        if (ctx.isWater(x, z) || ctx.buildings.hit(x, z, 1.5) || ctx.roads.hit(x, z, 1.5) || ctx.isReserved?.(x, z)) continue;
+        out.push({ x, z, type: 0, scale: 0.85 + rand() * 0.35, rot: rand() * Math.PI * 2, mapped: false });
+      }
+    }
+  }
+  return out;
+}
+
 export interface TreeInstance {
   x: number;
   z: number;
-  type: 0 | 1 | 2; // palm, broadleaf, bush
+  type: 0 | 1 | 2 | 3; // palm, broadleaf, bush, mangrove
   scale: number;
   rot: number;
   mapped: boolean;
@@ -192,7 +258,7 @@ export interface VegetationMeshes {
 }
 
 export function buildVegetation(trees: TreeInstance[]): VegetationMeshes {
-  const geos = [palmGeometry(), broadleafGeometry(), bushGeometry()];
+  const geos = [palmGeometry(), broadleafGeometry(), bushGeometry(), mangroveGeometry()];
   const meshes: THREE.InstancedMesh[] = [];
   const trunks: number[] = [];
   const m = new THREE.Matrix4();
@@ -201,7 +267,7 @@ export function buildVegetation(trees: TreeInstance[]): VegetationMeshes {
   const p = new THREE.Vector3();
   const c = new THREE.Color();
   const up = new THREE.Vector3(0, 1, 0);
-  for (let t = 0; t < 3; t++) {
+  for (let t = 0; t < 4; t++) {
     const list = trees.filter((tr) => tr.type === t);
     if (list.length === 0) continue;
     const mesh = new THREE.InstancedMesh(geos[t]!, materials().vegetation, list.length);

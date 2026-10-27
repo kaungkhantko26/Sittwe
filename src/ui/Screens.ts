@@ -147,7 +147,7 @@ export function aboutContent(manifest: WorldManifest | null): HTMLElement {
       {},
       h('li', {}, 'Real (from OSM): road centerlines & classes, building footprints, coastline, water bodies, land-use areas, mapped trees, named landmarks and their positions.'),
       h('li', {}, 'Estimated: building heights without height/levels tags (by type and footprint area), road widths without width/lanes tags, roof shapes.'),
-      h('li', {}, 'Generated / artistic: filler trees inside mapped green and residential areas, streetlights along major roads, window and door details, stupa markers at mapped Buddhist sites without a footprint, the flat terrain (no elevation data).'),
+      h('li', {}, 'Generated / artistic: filler trees inside mapped green and residential areas, streetlights along major roads, window and door details, stupa markers at mapped Buddhist sites without a footprint, sea waves and shore foam, coastal palms and mangroves along the real coastline, seagulls and jumping fish, the flat terrain (no elevation data).'),
     ),
     h('h3', {}, 'Software'),
     h('p.small', {}, 'Three.js (MIT), Rapier physics (Apache-2.0), MapLibre GL JS (BSD-3-Clause), Vite (MIT). 3D models and sounds are authored procedurally in code. The flag image was supplied by the user; other surface details use procedural materials.'),

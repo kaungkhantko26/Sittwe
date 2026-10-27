@@ -17,6 +17,11 @@ import { RemotePlayers } from '../systems/RemotePlayers';
 import { syncedHours, type PlayerSnapshot, type RoomEnvironment } from '../systems/RoomProtocol';
 import { shouldReroute, type FindMode, type FoundPlayer } from '../systems/PlayerFinder';
 import { roomPanel } from '../ui/RoomPanel';
+import { MissionDirector } from '../systems/MissionDirector';
+import { missionPanel, MissionTracker } from '../ui/MissionPanel';
+import { FestivalFx } from '../world/FestivalFx';
+import { Wildlife } from '../world/Wildlife';
+import { missionById, PLACES } from '../systems/Missions';
 import { Navigation } from '../systems/Navigation';
 import { Discoveries } from '../systems/Discoveries';
 import { kneelPose, PagodaVisitors } from '../systems/PagodaVisitors';
@@ -68,6 +73,11 @@ export class Game {
 
   private riding=false;
   private roomEnvironment=false;
+  private missions!: MissionDirector;
+  private missionTracker!: MissionTracker;
+  private festivalFx!: FestivalFx;
+  private wildlife!: Wildlife;
+  private trackerTimer = 0;
   private readonly ridePosition=new THREE.Vector3();
   private rideYaw=0;
   private physics!: PhysicsWorld;
@@ -270,6 +280,7 @@ export class Game {
       onOpenMap: () => this.openMap(),
     });
     this.roomBadge=document.createElement('button');this.roomBadge.className='btn room-badge';this.roomBadge.textContent='Rooms · Solo play';this.roomBadge.addEventListener('click',()=>this.openRooms());this.hud.root.append(this.roomBadge);
+    this.setupMissions(manifest);
     this.touchControls=new TouchControls(this.hud.root,this.input,{map:()=>this.openMap(),pause:()=>this.pause()});
     this.fullMap = new FullMap(
       this.ui,
@@ -629,7 +640,53 @@ export class Game {
 
   private networkSnapshot():PlayerSnapshot {
     const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+  }
+
+  /** Co-op missions at real places, shared in rooms, plus the Thadingyut festival. */
+  private setupMissions(manifest: WorldManifest): void {
+    const byId = new Map(manifest.landmarks.map((l) => [l.id, l]));
+    const view = byId.get(PLACES.viewPoint);
+    this.festivalFx = new FestivalFx(this.scene, view ? { x: view.x, z: view.z } : null);
+    this.wildlife = new Wildlife(this.scene, (x, z) => this.world.isBlocked(x, z));
+    this.missions = new MissionDirector({
+      rooms: this.rooms,
+      players: () => {
+        const p = this.focusPoint();
+        const me = { id: this.rooms.selfId ?? 'me', name: this.settings.get().playerName || 'You', x: p.x, z: p.z };
+        return this.rooms.active ? [me, ...this.remotePlayers.list()] : [me];
+      },
+      hours: () => this.cycle.hours,
+      place: (ref) => (ref === 'home' ? { x: this.housing.home.x, z: this.housing.home.z } : (() => { const l = byId.get(ref); return l ? { x: l.x, z: l.z } : null; })()),
+      lang: () => getLang(),
+      toast: (text, sec) => this.hud.toast(text, sec),
+      fx: (kind, x, z) => {
+        const site = this.world.pagodaSites().reduce<{ s: ReturnType<WorldManager['pagodaSites']>[number] | null; d: number }>((b, s) => { const d = Math.hypot(s.layout.centre[0] - x, s.layout.centre[1] - z); return d < b.d ? { s, d } : b; }, { s: null, d: 120 }).s ?? undefined;
+        this.festivalFx.play(kind, x, z, site);
+        this.audio.splash();
+      },
+      target: (at) => this.setDestination(at),
+      onChange: () => this.missionTracker?.refresh(),
+    });
+    this.missionTracker = new MissionTracker(this.hud.root, this.missions, () => {
+      const s = this.missions.tracker();
+      if (!s) return;
+      const st = this.missions.state;
+      const step = st.id ? missionById(st.id)?.steps[st.step] : undefined;
+      const at = step ? (step.place === 'home' ? this.housing.home : byId.get(step.place)) : undefined;
+      if (at) this.setDestination({ x: at.x, z: at.z });
+    }, () => this.openMissions());
+    const badge = document.createElement('button');
+    badge.className = 'btn mission-badge';
+    badge.textContent = '🎯 Missions (K)';
+    badge.addEventListener('click', () => this.openMissions());
+    this.hud.root.append(badge);
+  }
+
+  private openMissions(): void {
+    if (this.state === 'playing') this.pause();
+    const close = () => { this.modal.close(); if (this.state === 'paused') this.resume(); };
+    this.modal.open('🎯 Missions', missionPanel(this.missions, getLang(), this.rooms.active, this.rooms.isHost, close));
   }
 
   private openRooms():void {
@@ -880,6 +937,11 @@ export class Game {
       this.visitors.maxPerSite = this.settings.get().quality === 'low' ? 4 : 8;
       this.visitors.update(Math.min(dt, 0.05), this.world.pagodaSites(), focus.x, focus.z, this.cycle.hours);
       this.updateDiscoveries(dt, focus.x, focus.z);
+      this.missions.update(dt);
+      this.wildlife.update(Math.min(dt, 0.05), { px: focus.x, pz: focus.z, day: this.cycle.compute().day });
+      this.festivalFx.update(dt, { night: this.cycle.compute().night, festival: this.missions.festival, px: focus.x, pz: focus.z, sites: this.world.pagodaSites(), camera: this.camera });
+      this.trackerTimer -= dt;
+      if (this.trackerTimer <= 0) { this.trackerTimer = 0.5; this.missionTracker.refresh(); }
       if (this.sitting) kneelPose(this.player.rig, performance.now() / 1000);
     }
     if (this.state === 'map') {
@@ -937,11 +999,14 @@ export class Game {
       this.vehicles.resetDriven();
       this.hud.toast(t('carReset'), 1.5);
     }
+    if (inp.wasPressed('KeyK')) this.openMissions();
     if (inp.wasPressed('KeyH')) {
       this.hintsVisible = !this.hintsVisible;
       this.ui.classList.toggle('hide-hints', !this.hintsVisible);
     }
-    if (inp.wasPressed('KeyE') && !driving && this.world.nearHomeDoor(this.player.position.x,this.player.position.z)) {
+    if (inp.wasPressed('KeyE') && !driving && this.missions.pressE()) {
+      // A mission action used E (buy, drink, light lamps…).
+    } else if (inp.wasPressed('KeyE') && !driving && this.world.nearHomeDoor(this.player.position.x,this.player.position.z)) {
       this.world.toggleHomeDoor();
     } else if (inp.wasPressed('KeyE') && !driving && this.pedestrians.nearby(this.player.position.x,this.player.position.z)) {
       this.hud.toast(this.pedestrians.nearby(this.player.position.x,this.player.position.z)!,3);
@@ -1158,7 +1223,9 @@ export class Game {
     if(this.riding)prompt='Passenger — F to leave when stopped and landed';
     else if(ride&&!driving)prompt=`F — Ride with ${ride.name}`;
     else if (!driving) {
-      if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
+      const mission = this.missions.prompt();
+      if (mission) prompt = `E — ${mission}`;
+      else if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
       else if(this.pedestrians.nearby(p.x,p.z)) prompt='E — '+this.pedestrians.nearby(p.x,p.z);
       else if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');
       else if (this.nearPagoda()) {

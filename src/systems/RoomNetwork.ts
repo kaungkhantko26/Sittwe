@@ -1,5 +1,7 @@
 export const DIRECT_ICE:RTCIceServer[]=[{urls:['stun:stun.l.google.com:19302','stun:stun.cloudflare.com:3478']}];
-export interface RoomNetwork {iceServers:RTCIceServer[];iceTransportPolicy:RTCIceTransportPolicy;hasRelay:boolean}
+export interface RoomNetwork {iceServers:RTCIceServer[];iceTransportPolicy:RTCIceTransportPolicy;hasRelay:boolean;
+ /** Set when the relay could not be reached and a fallback is in use (shown in the room panel). */
+ note?:string}
 /** Treat remote configuration as data and never display provider credentials in error text. */
 export function parseIceServers(raw:unknown):RTCIceServer[] {
  if(!Array.isArray(raw)||raw.length>16)throw new Error('Invalid relay configuration.');
@@ -13,14 +15,14 @@ export function parseIceServers(raw:unknown):RTCIceServer[] {
  });
 }
 export async function loadRoomNetwork(fetcher:typeof fetch=fetch):Promise<RoomNetwork> {
- const configResponse=await fetcher(`${import.meta.env.BASE_URL}multiplayer.json`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+ const configResponse=await fetcher(`${import.meta.env.BASE_URL}multiplayer.json`,{cache:'no-store',signal:AbortSignal.timeout(6000)});
  if(!configResponse.ok)throw new Error('Room network configuration could not be loaded.');
  const config=await configResponse.json() as {iceServersUrl?:unknown;relayOnly?:unknown};
  if(!config.iceServersUrl)return {iceServers:DIRECT_ICE,iceTransportPolicy:'all',hasRelay:false};
  if(typeof config.iceServersUrl!=='string')throw new Error('Invalid relay endpoint.');
  const url=new URL(config.iceServersUrl);
  if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw new Error('Use an HTTPS relay endpoint without API keys in its URL.');
- const response=await fetcher(url.href,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+ const response=await fetcher(url.href,{cache:'no-store',signal:AbortSignal.timeout(4000)});
  if(!response.ok)throw new Error('The relay service is unavailable.');
  const data=await response.json(),servers=parseIceServers(Array.isArray(data)?data:data.iceServers);
  const hasRelay=servers.some(s=>(Array.isArray(s.urls)?s.urls:[s.urls]).some(u=>/^turns?:/.test(u)));
@@ -46,4 +48,37 @@ export function relayFallbackServers(servers:RTCIceServer[]):RTCIceServer[]{
  const select=(pattern:RegExp)=>servers.flatMap(server=>{const urls=(Array.isArray(server.urls)?server.urls:[server.urls]).filter(url=>pattern.test(url));return urls.length?[{...server,urls}]:[]});
  const tls=select(/^turns:/i);if(tls.length)return tls;
  const tcp=select(/^turn:.*[?&]transport=tcp/i);return tcp.length?tcp:servers;
+}
+
+const ICE_CACHE_KEY='sittwe3d.relayIce';
+const ICE_CACHE_DAYS=7;
+type Store=Pick<Storage,'getItem'|'setItem'>;
+function safeStore():Store|null{try{return typeof localStorage==='undefined'?null:localStorage}catch{return null}}
+
+/**
+ * Rooms must work even when the relay service cannot be reached (some
+ * networks break or block it). Tries the relay; on success remembers its
+ * servers for a week in this browser. On failure it uses the remembered
+ * servers, or falls back to direct connections, which work on most networks.
+ * Never throws.
+ */
+export async function loadRoomNetworkResilient(fetcher:typeof fetch=fetch,store:Store|null=safeStore(),now=Date.now()):Promise<RoomNetwork>{
+ try{
+  const network=await loadRoomNetwork(fetcher);
+  if(network.hasRelay)try{store?.setItem(ICE_CACHE_KEY,JSON.stringify({at:now,servers:network.iceServers.filter(s=>!DIRECT_ICE.includes(s)),policy:network.iceTransportPolicy}))}catch{/* Storage may be full or blocked. */}
+  return network;
+ }catch{
+  try{
+   const raw=store?.getItem(ICE_CACHE_KEY);
+   if(raw){
+    const cached=JSON.parse(raw) as {at?:unknown;servers?:unknown;policy?:unknown};
+    if(typeof cached.at==='number'&&now-cached.at<ICE_CACHE_DAYS*864e5){
+     const servers=parseIceServers(cached.servers);
+     if(servers.some(s=>(Array.isArray(s.urls)?s.urls:[s.urls]).some(u=>/^turns?:/.test(u))))
+      return {iceServers:[...DIRECT_ICE,...servers],iceTransportPolicy:cached.policy==='relay'?'relay':'all',hasRelay:true,note:'Relay service unreachable — using saved relay settings.'};
+    }
+   }
+  }catch{/* Ignore a damaged cache. */}
+  return {iceServers:DIRECT_ICE,iceTransportPolicy:'all',hasRelay:false,note:'Relay service unreachable from this network — using direct connections (works on most networks).'};
+ }
 }

@@ -17,7 +17,7 @@ const JUMP_SPEED = 7;
 const SWIM_SPEED = 1.7;
 const SWIM_SPRINT_SPEED = 3.0;
 /** How far the model sinks when swimming so only head and shoulders show above the surface. */
-const SWIM_SINK = 1.02;
+export const SWIM_SINK = 1.02;
 
 export interface PlayerInput {
   /** Desired horizontal direction in world space (length 0..1). */
