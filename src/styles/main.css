@@ -329,6 +329,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 /* Major landmark markers */
 .mm-landmark { color: #f5c24b; font-size: 13px; line-height: 1; text-shadow: 0 0 3px #000, 0 0 6px rgba(0,0,0,0.8); pointer-events: none; }
 .mm-landmark.pagoda { font-size: 16px; }
+.mm-landmark.airport { font-size: 16px; color: #dfe9f5; }
 .lm-marker.major { width: 18px; height: 18px; border-width: 3px; box-shadow: 0 0 0 3px rgba(245,184,75,0.35); }
 .lm-local { font-size: 18px; color: var(--accent); margin-top: 0; }
 

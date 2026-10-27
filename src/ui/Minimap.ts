@@ -216,13 +216,13 @@ export class Minimap {
   private landmarkMarkers: maplibregl.Marker[] = [];
 
   /** Gold markers for major landmarks (pagoda complexes, shrines, monuments). */
-  setLandmarks(list: Array<{ x: number; z: number; name: string; kind: 'pagoda' | 'shrine' | 'monument' }>): void {
+  setLandmarks(list: Array<{ x: number; z: number; name: string; kind: 'pagoda' | 'shrine' | 'monument' | 'airport' }>): void {
     for (const m of this.landmarkMarkers) m.remove();
     this.landmarkMarkers = list.map((l) => {
       const el = document.createElement('div');
       el.className = `mm-landmark ${l.kind}`;
       el.title = l.name;
-      el.textContent = l.kind === 'monument' ? '◆' : '▲';
+      el.textContent = l.kind === 'airport' ? '✈' : l.kind === 'monument' ? '◆' : '▲';
       return new maplibregl.Marker({ element: el }).setLngLat(lonLat(l.x, l.z)).addTo(this.map);
     });
   }

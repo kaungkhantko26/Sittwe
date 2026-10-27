@@ -268,8 +268,8 @@ export class Game {
         this.fullMap.setSearchIndex(this.buildSearchIndex(manifest));
       }
       {
-        const major = manifest.landmarks.filter((l) => l.pg || l.ms || ['clock', 'monument', 'memorial', 'viewpoint'].includes(l.k));
-        this.hud.minimap.setLandmarks(major.map((l) => ({ x: l.x, z: l.z, name: l.ne ?? l.n, kind: l.pg ? 'pagoda' : l.ms ? 'shrine' : 'monument' })));
+        const major = manifest.landmarks.filter((l) => l.pg || l.ms || ['clock', 'monument', 'memorial', 'viewpoint', 'aerodrome'].includes(l.k));
+        this.hud.minimap.setLandmarks(major.map((l) => ({ x: l.x, z: l.z, name: l.ne ?? l.n, kind: l.pg ? 'pagoda' : l.ms ? 'shrine' : l.k === 'aerodrome' ? 'airport' : 'monument' })));
       }
       this.applySettings(s, null);
       this.loop.start();

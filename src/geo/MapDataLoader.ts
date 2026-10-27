@@ -2,6 +2,7 @@ import { chunkFileName, type ChunkData, type SeaData, type WorldManifest } from 
 import type { RoadGraphData } from './roadGraph';
 import type { BoundaryData } from '../world/BoundaryGenerator';
 import { validateChunk } from './validateChunk';
+import { airportBuildingIds, validAirport, type AirportData } from '../world/AirportGenerator';
 
 /**
  * Loads the locally cached, pre-processed map data (manifest, sea polygon,
@@ -11,6 +12,8 @@ import { validateChunk } from './validateChunk';
 export class MapDataLoader {
   private readonly cache = new Map<string, ChunkData>();
   private readonly maxCache = 48;
+  /** Sittwe Airport features from OpenStreetMap (airport.json), loaded with the manifest. */
+  airport: AirportData | null = null;
 
   constructor(private readonly baseUrl = `${import.meta.env.BASE_URL}data/`) {}
 
@@ -32,7 +35,27 @@ export class MapDataLoader {
     if (!m || !Array.isArray(m.chunks) || typeof m.chunkSize !== 'number' || !m.spawn?.player) {
       throw new Error('World manifest is invalid. Re-run `npm run data:all`.');
     }
+    await this.loadAirport(m);
     return m;
+  }
+
+  /** Loads airport.json and lists the airport as a landmark (for the map, search and discoveries). */
+  private async loadAirport(m: WorldManifest): Promise<void> {
+    try {
+      const a = await this.json<unknown>('airport.json');
+      if (!validAirport(a)) return;
+      this.airport = a;
+      const term = a.features.find((f) => f.tags['aeroway'] === 'terminal');
+      const id = airportBuildingIds(a)[0];
+      if (!term || !id || m.landmarks.some((l) => l.id === id)) return;
+      const pts = term.closed ? term.points.slice(0, -1) : term.points;
+      const x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+      const z = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+      const name = term.tags['name'] ?? 'Sittwe Airport';
+      m.landmarks.push({ id, n: name, ne: term.tags['name:en'] ?? name, nl: term.tags['name:my'] ?? 'စစ်တွေလေဆိပ်', cat: 'transport', k: 'aerodrome', fp: true, x, z, b: id, h: 6.6 });
+    } catch (e) {
+      console.warn('[MapDataLoader] airport.json unavailable; continuing without the airport.', e);
+    }
   }
 
   async sea(): Promise<SeaData> {

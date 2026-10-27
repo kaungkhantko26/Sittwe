@@ -23,6 +23,7 @@ import { buildVegetation, placeCoastalTrees, placeTrees } from './VegetationGene
 import { buildSea, buildWater, waterMaterial } from './WaterGenerator';
 import { OceanWaves } from './OceanWaves';
 import { beachMaterial, buildBeachGeometry } from './BeachGenerator';
+import { airportBuildingIds, buildAirport, setAirportLights, type AirportObjects } from './AirportGenerator';
 
 export interface WorldOptions {
   /** Chunks kept visible around the player (Chebyshev radius). */
@@ -84,6 +85,10 @@ export class WorldManager {
   private doorOpen = true;
   private preview: HomeObjects | null = null;
   private boundaryBody:RAPIER.RigidBody|null=null;
+  /** Sittwe Airport (runway, apron, terminal) built once from OSM data. */
+  private airport: AirportObjects | null = null;
+  /** Mapped buildings drawn by a custom model instead (the airport terminal). */
+  private readonly replacedBuildings = new Set<string>();
   private time = 0;
   private playerX = 0;
   private playerZ = 0;
@@ -127,6 +132,12 @@ export class WorldManager {
     if (this.seaMesh) this.root.add(this.seaMesh);
     this.ocean = typeof document !== 'undefined' && this.seaPolys.length ? new OceanWaves(this.seaPolys) : null;
     if (this.ocean) this.root.add(this.ocean.mesh);
+    if (loader.airport) {
+      this.airport = buildAirport(loader.airport);
+      this.root.add(this.airport.group);
+      for (const id of airportBuildingIds(loader.airport)) this.replacedBuildings.add(id);
+      physics.createStaticHulls(this.airport.hulls, Groups.building);
+    }
 
     this.chunks = new ChunkManager<ChunkData>({
       chunkSize: manifest.chunkSize,
@@ -150,6 +161,8 @@ export class WorldManager {
     this.playerZ = playerZ;
     waterMaterial().uniforms['uTime']!.value = this.time;
     this.ocean?.update(playerX, playerZ, 0);
+    // Runway lights follow the streetlights (on at night).
+    if (this.airport) setAirportLights(this.airport, materials().lampHead.emissiveIntensity > 0 ? 1 : 0);
     this.chunks.update(playerX, playerZ);
     this.runJobs();
     if (this.home && this.homeLocation) {
@@ -259,7 +272,7 @@ export class WorldManager {
     yield;
 
     // Stage 2: buildings.
-    const b = buildBuildings(data.buildings);
+    const b = buildBuildings(this.replacedBuildings.size ? data.buildings.filter((x) => !this.replacedBuildings.has(x.id)) : data.buildings);
     const buildingsMesh = add(b.geometry, [m.buildingWall, m.buildingRoof], group, true, true);
     const buildingIndex = new PolygonIndex(b.footprints);
     yield;
@@ -735,6 +748,7 @@ export class WorldManager {
     if(this.home)disposeHome(this.home);
     for(const b of this.homeBodies)this.physics.removeBody(b);
     if(this.doorBody)this.physics.removeBody(this.doorBody);
+    this.airport?.dispose();
     this.chunks.dispose();
     this.scene.remove(this.root);
     this.ground.geometry.dispose();
