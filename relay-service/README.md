@@ -1,8 +1,10 @@
 # Cross-network room relay setup
 
-Status: the credential proxy is deployed at `https://sittwe-room-relay.relay-service.workers.dev/ice`, with the game-specific ICE configuration stored as a Worker secret. The public game uses automatic direct/TURN selection. Two actual room clients passed a relay-only synchronization check; this is not a physical-device/mobile-network test. GitHub Pages does not execute the proxy.
+Current relay: the user-owned Ubuntu VPS runs authenticated Coturn at `mail.kiiidev.com`. See [VPS operations](vps/README.md). The Worker issues six-hour credentials from a private signing secret; the retained Metered configuration is a rollback option. UDP, TCP, TLS allocations and an actual TCP-to-TLS relayed data message passed from an external client.
 
-The account currently uses the no-card 500 MB trial. Monitor the provider quota; exhaustion or credential expiry will prevent relayed connections. The steps below document setup and credential rotation.
+The credential proxy is deployed at `https://sittwe-room-relay.relay-service.workers.dev/ice`, with the game-specific ICE configuration stored as a Worker secret. The public game uses automatic direct/TURN selection. Two actual room clients passed a relay-only synchronization check; this is not a physical-device/mobile-network test. GitHub Pages does not execute the proxy.
+
+The Metered account uses the no-card 500 MB trial, but the active VPS path does not consume that quota. The steps below document the previous provider setup and its credential rotation.
 
 1. Complete the [Metered Open Relay signup](https://dashboard.metered.ca/signup?tool=turnserver) yourself, including password and provider terms. Use the free service if its current allowance meets your needs; do not enable paid billing without deciding to do so.
 2. Create a TURN credential in the dashboard. Keep the **credential-scoped** API key private; do not use a management/secret key in browser code or commit it.
