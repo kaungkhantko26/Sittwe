@@ -6,6 +6,8 @@ import { MapDataLoader } from '../geo/MapDataLoader';
 import { DayNightCycle } from '../lighting/DayNightCycle';
 import { LightingManager } from '../lighting/LightingManager';
 import { Weather } from '../lighting/Weather';
+import { BikeFx, type ExhaustSource } from '../vehicles/BikeFx';
+import { seatPillion } from '../vehicles/Rider';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { PlayerController, type PlayerInput } from '../player/PlayerController';
 import { ThirdPersonCamera, type CameraMode, type VehicleCameraMode } from '../player/ThirdPersonCamera';
@@ -100,6 +102,8 @@ export class Game {
   private homeRequest = 0;
   private lighting!: LightingManager;
   private weather!: Weather;
+  private bikeFx!: BikeFx;
+  private readonly exhaustList: ExhaustSource[] = [];
   private player!: PlayerController;
   private vehicles!: VehicleSystem;
   private cam!: ThirdPersonCamera;
@@ -200,6 +204,7 @@ export class Game {
       const preset = this.settings.preset;
       this.lighting = new LightingManager(this.scene, { shadowMapSize: preset.shadowMapSize, maxPointLights: preset.maxPointLights, fogFar: preset.fogFar });
       this.weather = new Weather(this.scene);
+      this.bikeFx = new BikeFx(this.scene);
       this.world = new WorldManager(this.scene, this.physics, loader, manifest, sea, {
         viewRadius: preset.viewRadius,
         physicsRadius: preset.physicsRadius,
@@ -248,7 +253,7 @@ export class Game {
     this.rooms.onRideMessage=message=>this.hud.toast(message,3);
     this.rooms.onRide=seat=>{
       if(seat){this.stopDance();this.ridePosition.copy(this.player.renderPos);this.riding=true;this.player.setActive(false);this.cam.snapBehind(this.player.yaw);this.hud.toast('Passenger seat — F to leave once stopped and landed',4);}
-      else if(this.riding){this.riding=false;this.player.setActive(true);const p=this.ridePosition;const spot=this.world.findFreeSpot(p.x+Math.cos(this.rideYaw)*3,p.z-Math.sin(this.rideYaw)*3);this.player.teleport(spot.x,spot.z,this.rideYaw);this.cam.snapBehind(this.rideYaw);this.hud.toast('You left the passenger seat',2);}
+      else if(this.riding){this.riding=false;resetPose(this.player.rig);this.player.rig.root.rotation.set(0,0,0);this.player.setActive(true);const p=this.ridePosition;const spot=this.world.findFreeSpot(p.x+Math.cos(this.rideYaw)*3,p.z-Math.sin(this.rideYaw)*3);this.player.teleport(spot.x,spot.z,this.rideYaw);this.cam.snapBehind(this.rideYaw);this.hud.toast('You left the passenger seat',2);}
     };
       this.rooms.onJoin=s=>void this.joinRoomAt(s);
       this.rooms.environment=()=>({hours:this.cycle.hours,dayLengthMinutes:this.cycle.dayLengthMinutes,rain:this.weather.target>0.5});
@@ -652,7 +657,7 @@ export class Game {
 
   private networkSnapshot():PlayerSnapshot {
     const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,...(this.sitting&&!v?{sit:this.sitPose}:{}),vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,...(v.kind!=='car'?{kind:v.kind}:{}),id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,...(this.sitting&&!v?{sit:this.sitPose}:{}),vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,...(v.kind!=='car'?{kind:v.kind}:{}),...(v.wheelie>0.01?{wheelie:+v.wheelie.toFixed(3)}:{}),id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
   }
 
   /** Co-op missions at real places, shared in rooms, plus the Thadingyut festival. */
@@ -891,9 +896,15 @@ export class Game {
     if (ridden && ridden.kind !== 'car') {
       this.pedal += dt * Math.abs(ridden.physics.forwardSpeed()) * 1.6;
       this.player.rig.root.visible = true;
-      seatRider(this.player.rig, ridden.visual, ridden.kind, this.pedal);
+      seatRider(this.player.rig, ridden.visual, ridden.kind, this.pedal, ridden.wheelie);
     }
     if (this.traffic) this.traffic.update(dt, this.cycle.compute().night > 0.4);
+    // Passenger on a friend's motorbike: sit on the back seat, in view.
+    const pillionBike = this.riding && this.rooms?.ride ? this.remotePlayers.vehicleRoot(this.rooms.ride.driverId) : null;
+    if (pillionBike?.name === 'motorbike') {
+      this.player.rig.root.visible = true;
+      seatPillion(this.player.rig, pillionBike);
+    } else if (this.riding) this.player.rig.root.visible = false;
 
     const menuLike = this.state === 'menu' || this.state === 'boot' || (this.state === 'map' && this.mapReturn === 'menu');
     const spawn = this.manifest?.spawn.player ?? { x: 0, z: 0 };
@@ -936,6 +947,19 @@ export class Game {
     if (this.lighting) {
       this.lighting.update(dt, ls, focus, this.camera, this.renderer.three, (x, z, r, n) => this.world.lampsNear(x, z, r, n), this.weather.amount);
       this.weather.update(dt, this.camera.position);
+      // Motorbike exhaust smoke (yours, friends' and traffic) and wind streaks at speed.
+      const fx = this.exhaustList;
+      fx.length = 0;
+      let speed = 0;
+      if (this.state === 'playing') {
+        for (const v of this.vehicles?.vehicles ?? []) if (v === this.vehicles.driving && v.visual.exhaust) fx.push({ exhaust: v.visual.exhaust, throttle: Math.max(v.physics.throttle, Math.min(1, v.speedKmh / 60) * 0.5) });
+        this.traffic?.exhausts(fx, focus.x, focus.z);
+        if (this.rooms?.active) this.remotePlayers.exhausts(fx);
+        const own = this.vehicles?.driving;
+        if (own && !own.physics.boat) speed = own.physics.forwardSpeed();
+        else if (this.riding && this.rooms?.ride) speed = this.remotePlayers.ridePose(this.rooms.ride.driverId)?.state.speed ?? 0;
+      }
+      this.bikeFx.update(dt, fx, speed, this.camera, this.renderer.three, ls.day);
     }
     if (this.beacon?.visible) {
       (this.beacon.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.15 * Math.sin(performance.now() / 300);
@@ -1105,7 +1129,7 @@ export class Game {
     if (extras.length >= 4) this.vehicles.remove(extras[0]!);
     const palette = kind === 'motorbike' ? [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0] : kind === 'bicycle' ? [0x2f7d4f, 0x1d3f7a, 0x222428, 0xc23b3b] : [0xf1f3f4];
     this.vehicles.spawnAt(spot.x, spot.z, yaw, palette[Math.floor(Math.random() * palette.length)]!, kind);
-    this.hud.toast(kind === 'motorbike' ? '🏍️ Motorbike spawned nearby — press F to ride' : kind === 'bicycle' ? '🚲 Bicycle spawned nearby — press F to ride' : '🚗 Car spawned nearby — press F to drive', 2);
+    this.hud.toast(kind === 'motorbike' ? '🏍️ Motorbike spawned nearby — press F to ride · hold Space for a wheelie' : kind === 'bicycle' ? '🚲 Bicycle spawned nearby — press F to ride' : '🚗 Car spawned nearby — press F to drive', 2);
   }
 
   // ---------------------------------------------------------------------------
@@ -1343,6 +1367,8 @@ export class Game {
       speedKmh: driving ? driving.speedKmh : 0,
       throttle: driving ? driving.physics.throttle : 0,
       nearWater: this.player.swimming,
+      // Open-air wind roar on two-wheelers (and a muffled one in cars).
+      rush: driving ? Math.min(1, driving.speedKmh / 70) * (driving.kind === 'car' ? 0.25 : 1) : this.riding && this.rooms?.ride ? Math.min(1, ((this.remotePlayers.ridePose(this.rooms.ride.driverId)?.state.speed ?? 0) * 3.6) / 70) : 0,
     });
   }
 }

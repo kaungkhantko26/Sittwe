@@ -18,6 +18,8 @@ export interface VehicleVisual {
   crank?: THREE.Group;
   /** Seat top in body space, for placing the rider. */
   seat?: THREE.Vector3;
+  /** Motorbike exhaust pipe tip (smoke comes out here). */
+  exhaust?: THREE.Object3D;
 }
 
 const WHEEL_RADIUS = 0.34;
@@ -188,6 +190,31 @@ export function disposeVehicleModel(visual:VehicleVisual):void {
 
 /** Ground level below the body origin for two-wheelers (wheel contact at rest). */
 export const BIKE_GROUND = -0.51;
+/** Rear tyre contact point along the bike (body space Z), the pivot for wheelies. */
+export const REAR_WHEEL_Z = { motorbike: 0.64, bicycle: 0.55 } as const;
+const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
+const pitchQ = new THREE.Quaternion();
+const pivotA = new THREE.Vector3();
+const pivotB = new THREE.Vector3();
+
+/**
+ * Wheelie: tips a two-wheeler's model up about the rear tyre's contact point,
+ * lifting the front wheel. Call after the model's base position and rotation
+ * are set for this frame. angle in radians (positive = front up).
+ */
+export function liftFrontWheel(root: THREE.Object3D, kind: 'motorbike' | 'bicycle', angle: number): void {
+  if (angle <= 1e-4) return;
+  pivotA.set(0, BIKE_GROUND, REAR_WHEEL_Z[kind]);
+  pitchQ.setFromAxisAngle(PITCH_AXIS, angle);
+  // Keep the pivot fixed: shift by (P - R·P) in the model's frame.
+  pivotB.copy(pivotA).applyQuaternion(pitchQ);
+  pivotA.sub(pivotB).applyQuaternion(root.quaternion);
+  root.position.add(pivotA);
+  root.quaternion.multiply(pitchQ);
+}
+
+/** Motorbike rider's seat in body space (the passenger sits just behind). */
+export const MOTORBIKE_SEAT = new THREE.Vector3(0, 0.85 + BIKE_GROUND, 0.22);
 
 function tube(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material): THREE.Mesh {
   const d = new THREE.Vector3().subVectors(b, a);
@@ -240,6 +267,7 @@ export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: numb
     return b;
   };
   let crank: THREE.Group | undefined;
+  let exhaust: THREE.Object3D | undefined;
   let seat: THREE.Vector3;
   const wheelPositions: Array<[number, number]> = [];
   if (kind === 'motorbike') {
@@ -252,6 +280,10 @@ export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: numb
     box(0.28, 0.09, 0.64, new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.85 }), 0, 0.8, 0.26); // seat
     box(0.2, 0.22, 0.32, dark, 0, 0.36, 0.04); // engine
     shell.add(tube(V(0.14, 0.3, 0.1), V(0.15, 0.36, 0.72), 0.04, chrome)); // exhaust
+    exhaust = new THREE.Object3D();
+    exhaust.name = 'exhaust';
+    exhaust.position.set(0.15, 0.36, 0.76);
+    shell.add(exhaust);
     box(0.16, 0.04, 0.5, paint, 0, r + 0.33, 0.66); // rear mudguard
     box(0.12, 0.04, 0.32, paint, 0, r + 0.32, -0.7, -0.3); // front mudguard
     // Fork, handlebars and lights.
@@ -262,7 +294,7 @@ export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: numb
     shell.add(lamp);
     box(0.16, 0.06, 0.04, brakeMat, 0, 0.66, 0.7);
     for (const sx of [-1, 1]) box(0.05, 0.04, 0.03, new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a00, emissiveIntensity: 0.4 }), sx * 0.12, 0.72, 0.7);
-    seat = V(0, 0.85 + BIKE_GROUND, 0.22);
+    seat = MOTORBIKE_SEAT.clone();
   } else {
     const r = 0.34;
     wheelPositions.push([-0.55, r], [0.55, r]);
@@ -298,5 +330,5 @@ export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: numb
   rear.pivot.position.set(0, wheelPositions[1]![1] + BIKE_GROUND, wheelPositions[1]![0]);
   root.add(front.pivot, rear.pivot);
   const empty = () => ({ pivot: new THREE.Group(), spin: new THREE.Group() });
-  return { root, wheels: [front, empty(), rear, empty()], brakeMat, headMat, rotors: [], thrustMat: null, thrusts: [], ...(crank ? { crank } : {}), seat };
+  return { root, wheels: [front, empty(), rear, empty()], brakeMat, headMat, rotors: [], thrustMat: null, thrusts: [], ...(crank ? { crank } : {}), ...(exhaust ? { exhaust } : {}), seat };
 }

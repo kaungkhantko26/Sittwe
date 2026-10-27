@@ -4,6 +4,7 @@ import { DEFAULT_ROAD_WIDTH } from '../geo/OSMParser';
 import type { RoadGraph } from '../geo/roadGraph';
 import { Groups } from '../physics/CollisionLayers';
 import { GROUND_Y, type PhysicsWorld } from '../physics/PhysicsWorld';
+import type { ExhaustSource } from './BikeFx';
 import { BIKE_GROUND, createTwoWheelerModel, createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
 import { SPECS, type VehicleKind } from './VehiclePhysics';
 import { createCharacter, disposeCharacter } from '../player/CharacterModels';
@@ -62,6 +63,14 @@ export class TrafficSystem {
     private readonly physics: PhysicsWorld,
     private readonly graph: RoadGraph,
   ) {}
+
+  /** Exhausts of traffic motorbikes within range, for smoke. */
+  exhausts(out: ExhaustSource[], x: number, z: number, range = 70): void {
+    for (const c of this.cars) {
+      const e = c.visual.exhaust;
+      if (e && c.visual.root.visible && Math.hypot(c.x - x, c.z - z) < range) out.push({ exhaust: e, throttle: Math.min(1, c.speed / 10) });
+    }
+  }
 
   get count(): number {
     return this.cars.length;

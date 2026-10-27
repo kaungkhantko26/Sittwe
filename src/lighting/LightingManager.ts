@@ -20,8 +20,23 @@ const skyFragment = /* glsl */ `
   uniform vec3 uSunColor;
   uniform float uStars;
   uniform float uSunVisible;
+  uniform float uTime;
+  uniform float uCover;
+  uniform float uDay;
+  uniform float uTwilight;
   varying vec3 vDir;
   float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+  float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), u.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; }
+    return v;
+  }
   void main() {
     vec3 d = normalize(vDir);
     float h = d.y;
@@ -37,6 +52,23 @@ const skyFragment = /* glsl */ `
       float s = hash(cell);
       float tw = step(0.9965, s) * (0.5 + 0.5 * hash(cell + 7.0));
       col += vec3(tw) * uStars * smoothstep(0.02, 0.25, h);
+    }
+    // Clouds: a drifting noise layer projected onto a flat ceiling.
+    if (h > 0.0 && uCover > 0.0) {
+      vec2 uv = d.xz / (h + 0.12) * 1.6;
+      vec2 drift = vec2(uTime * 0.012, uTime * 0.004);
+      float n = fbm(uv + drift);
+      float n2 = fbm(uv * 1.9 - drift * 1.6 + 4.0);
+      float shape = n * 0.75 + n2 * 0.25;
+      float thr = 0.62 - uCover * 0.32;
+      float dens = smoothstep(thr, thr + 0.2, shape) * smoothstep(0.0, 0.18, h);
+      // Lit tops face the sun; thick parts are shaded underneath.
+      vec3 lit = mix(uHorizon * 1.25 + vec3(0.03), vec3(1.0), uDay);
+      lit = mix(lit, uSunColor * 1.1, uTwilight * 0.55);
+      vec3 shade = mix(lit * 0.62, uTop * 0.5 + uHorizon * 0.3, 0.25) * mix(1.0, 0.75, uCover);
+      vec3 cloud = mix(lit, shade, smoothstep(thr + 0.08, thr + 0.4, shape));
+      cloud += uSunColor * pow(max(sd, 0.0), 12.0) * 0.35 * uSunVisible * (1.0 - dens * 0.5);
+      col = mix(col, cloud, dens * 0.92);
     }
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -67,6 +99,8 @@ export class LightingManager {
   private lampTimer = 0;
   private lampSlots = 0;
   private readonly shadowExtent = 70;
+  /** Fair-weather cloud amount, 0 (clear) .. 1 (overcast); rain adds more. */
+  cloudCover = 0.45;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -96,6 +130,10 @@ export class LightingManager {
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uStars: { value: 0 },
         uSunVisible: { value: 1 },
+        uTime: { value: 0 },
+        uCover: { value: 0.45 },
+        uDay: { value: 1 },
+        uTwilight: { value: 0 },
       },
       vertexShader: skyVertex,
       fragmentShader: skyFragment,
@@ -167,6 +205,10 @@ export class LightingManager {
     (u['uSunColor']!.value as THREE.Color).copy(s.keyColor);
     u['uStars']!.value = s.stars;
     u['uSunVisible']!.value = (1 - rain * 0.9) * (s.elevation > -0.05 ? 1 : 0);
+    u['uTime']!.value = (u['uTime']!.value as number) + dt;
+    u['uCover']!.value = this.cloudCover + rain * (1 - this.cloudCover);
+    u['uDay']!.value = s.day;
+    u['uTwilight']!.value = s.twilight;
     this.sky.position.copy(camera.position);
     this.fog.color.copy(s.fogColor);
     const fogScale = 1 - rain * 0.45;

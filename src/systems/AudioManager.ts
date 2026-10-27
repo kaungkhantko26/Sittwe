@@ -132,14 +132,16 @@ export class AudioManager {
   }
 
   /** Per-frame update of continuous layers. */
-  update(dt: number, p: { day: number; rain: number; driving: boolean; speedKmh: number; throttle: number; nearWater: boolean }): void {
+  update(dt: number, p: { day: number; rain: number; driving: boolean; speedKmh: number; throttle: number; nearWater: boolean; rush?: number }): void {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
     this.time += dt;
     const t = ctx.currentTime;
     this.city.gain.setTargetAtTime(0.1 + 0.16 * p.day, t, 0.5);
-    this.windFilter.frequency.setTargetAtTime(450 + Math.sin(this.time * 0.13) * 250 + Math.sin(this.time * 0.47) * 120, t, 0.8);
-    this.wind.gain.setTargetAtTime((p.nearWater ? 0.14 : 0.07) + p.rain * 0.06, t, 0.8);
+    // rush: 0..1 wind roar from riding fast in the open air.
+    const rush = p.rush ?? 0;
+    this.windFilter.frequency.setTargetAtTime(450 + rush * 700 + Math.sin(this.time * 0.13) * 250 + Math.sin(this.time * 0.47) * 120, t, rush > 0.05 ? 0.2 : 0.8);
+    this.wind.gain.setTargetAtTime((p.nearWater ? 0.14 : 0.07) + p.rain * 0.06 + rush * 0.32, t, rush > 0.05 ? 0.25 : 0.8);
     this.rain.gain.setTargetAtTime(p.rain * 0.22, t, 0.5);
 
     const rpm = 800 + Math.min(p.speedKmh, 100) * 38 + p.throttle * 900;

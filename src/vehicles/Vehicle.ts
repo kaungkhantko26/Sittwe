@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import { BoatLook } from './BoatLook';
-import { createTwoWheelerModel, createVehicleModel, disposeVehicleModel, type VehicleVisual } from './VehicleModel';
+import { createTwoWheelerModel, createVehicleModel, disposeVehicleModel, liftFrontWheel, type VehicleVisual } from './VehicleModel';
 import { VehiclePhysics, type DriveInput, type VehicleKind } from './VehiclePhysics';
 
 /** A drivable car: physics + visuals + light state, with render interpolation. */
@@ -17,6 +17,10 @@ export class Vehicle {
   private readonly boatLook: BoatLook;
   /** Visual lean of two-wheelers, radians. */
   lean = 0;
+  /** Wheelie angle of two-wheelers, radians (front wheel up). */
+  wheelie = 0;
+  private wantWheelie = false;
+  private wheelieT = 0;
   private readonly leanQ = new THREE.Quaternion();
   /** +Z: a positive angle leans the top of the bike to the left. */
   private static readonly ROLL_AXIS = new THREE.Vector3(0, 0, 1);
@@ -54,6 +58,8 @@ export class Vehicle {
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
     this.physics.drive(input, dt, driven);
+    // Space on a motorbike or bicycle (they can't fly): hold to lift the front wheel.
+    this.wantWheelie = driven && this.physics.spec.twoWheeler && !!input.lift;
   }
 
   /** Call after the physics step. */
@@ -89,6 +95,13 @@ export class Vehicle {
       const target = this.physics.steering * Math.min(1, Math.abs(speed) / 6) * 0.55 * Math.sign(speed || 1);
       this.lean += (target - this.lean) * Math.min(1, dt * 6);
       root.quaternion.multiply(this.leanQ.setFromAxisAngle(Vehicle.ROLL_AXIS, this.lean));
+      // Wheelie: needs some speed; balances with a slight wobble, drops back when released.
+      const up = this.wantWheelie && speed > 1.5;
+      this.wheelieT += dt;
+      const max = this.kind === 'bicycle' ? 0.38 : 0.5;
+      const lift = up ? max * Math.min(1, (speed - 1.5) / 4) + Math.sin(this.wheelieT * 4.3) * 0.035 : 0;
+      this.wheelie = Math.max(0, this.wheelie + (lift - this.wheelie) * Math.min(1, dt * (up ? 2.5 : 6)));
+      if (this.kind !== 'car') liftFrontWheel(root, this.kind, this.wheelie);
       if (this.visual.crank && this.physics.throttle > 0) this.visual.crank.rotation.x -= dt * (2 + Math.abs(speed) * 1.4);
     }
     this.boatLook.update(dt, this.physics.boat, this.physics.forwardSpeed());
