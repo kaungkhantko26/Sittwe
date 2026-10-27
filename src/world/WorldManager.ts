@@ -22,6 +22,7 @@ import { buildLanduse, createGroundPlane } from './TerrainGenerator';
 import { buildVegetation, placeCoastalTrees, placeTrees } from './VegetationGenerator';
 import { buildSea, buildWater, waterMaterial } from './WaterGenerator';
 import { OceanWaves } from './OceanWaves';
+import { beachMaterial, buildBeachGeometry } from './BeachGenerator';
 
 export interface WorldOptions {
   /** Chunks kept visible around the player (Chebyshev radius). */
@@ -291,6 +292,7 @@ export class WorldManager {
     };
     detail.add(chunk.signs);
     this.buildVegetation(chunk);
+    this.buildBeach(chunk);
     const clearLamps=(p:number[])=>{const out:number[]=[];for(let i=0;i<p.length;i+=2)if(!this.landmarkReserved(p[i]!,p[i+1]!)&&!this.inHomePlot(p[i]!,p[i+1]!))out.push(p[i]!,p[i+1]!);return out;};
     const lights = buildStreetLights(clearLamps(roads.lampCandidates), clearLamps(data.lamps), buildingIndex);
     if (lights.pole) detail.add(lights.pole);
@@ -325,12 +327,8 @@ export class WorldManager {
     return false;
   }
 
-  private buildVegetation(c: BuiltChunk): void {
-    for (const v of c.vegetation) {
-      c.detail.remove(v);
-      v.dispose();
-    }
-    const trees = placeTrees(c.key, c.data.trees, c.data.landuse, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x,z)=>this.inHomePlot(x,z)||this.landmarkReserved(x,z), isWater: (x, z) => this.inHomePlot(x,z) || this.landmarkReserved(x,z) || this.isWater(x, z, c) }, this.opts.vegetationDensity);
+  /** Sea coastline segments touching a chunk, and the chunk's bounds. */
+  private chunkCoast(c: { cx: number; cz: number }): { coast: number[]; bounds: { minX: number; maxX: number; minZ: number; maxZ: number } } {
     const size = this.manifest.chunkSize, bounds = { minX: c.cx * size, maxX: (c.cx + 1) * size, minZ: c.cz * size, maxZ: (c.cz + 1) * size };
     const coast: number[] = [];
     const cs = this.coastSegments;
@@ -338,6 +336,87 @@ export class WorldManager {
       if (Math.max(cs[i]!, cs[i + 2]!) < bounds.minX || Math.min(cs[i]!, cs[i + 2]!) > bounds.maxX || Math.max(cs[i + 1]!, cs[i + 3]!) < bounds.minZ || Math.min(cs[i + 1]!, cs[i + 3]!) > bounds.maxZ) continue;
       coast.push(cs[i]!, cs[i + 1]!, cs[i + 2]!, cs[i + 3]!);
     }
+    return { coast, bounds };
+  }
+
+  /** True if (x, z) is on dry land within `reach` metres of the sea (the beach band). */
+  isBeach(x: number, z: number, reach = 20): boolean {
+    if (this.isWater(x, z)) return false;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      for (const d of [reach / 2, reach]) if (this.isWater(x + Math.cos(a) * d, z + Math.sin(a) * d) && !this.isOnRoad(x + Math.cos(a) * d, z + Math.sin(a) * d, 1)) return true;
+    }
+    return false;
+  }
+
+  private beachClear(x: number, z: number): boolean {
+    return this.hasChunkAt(x, z) && !this.isOccupied(x, z, 2) && !this.isOnRoad(x, z, 3) && !this.landmarkReserved(x, z) && !this.inHomePlot(x, z);
+  }
+
+  /** A clear spot on the sand, 7 m up from the waterline, nearest to (x, z) but at least `minD` away. */
+  beachSpotNear(x: number, z: number, minD: number, maxD: number): { x: number; z: number } | null {
+    let best: { x: number; z: number; d: number } | null = null;
+    const cs = this.coastSegments;
+    for (let i = 0; i < cs.length; i += 4) {
+      const ax = cs[i]!, az = cs[i + 1]!, bx = cs[i + 2]!, bz = cs[i + 3]!;
+      if (Math.hypot((ax + bx) / 2 - x, (az + bz) / 2 - z) > maxD + 60) continue;
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1) continue;
+      const ux = (bx - ax) / len, uz = (bz - az) / len;
+      for (let t = 0; t < len; t += 6) {
+        const px = ax + ux * t, pz = az + uz * t;
+        for (const side of [1, -1]) {
+          const cx = px - uz * 7 * side, cz = pz + ux * 7 * side;
+          const d = Math.hypot(cx - x, cz - z);
+          if (d < minD || d > maxD || (best && d >= best.d)) continue;
+          if (this.isWater(cx, cz) || !this.beachClear(cx, cz)) continue;
+          best = { x: cx, z: cz, d };
+        }
+      }
+    }
+    return best ? { x: best.x, z: best.z } : null;
+  }
+
+  /** Random clear beach spots around (x, z) for scattering pickups (any free land as a fallback). */
+  beachPoints(x: number, z: number, count: number, spread: number): Array<[number, number]> {
+    const out: Array<[number, number]> = [];
+    for (let tries = 0; tries < count * 120 && out.length < count; tries++) {
+      const a = Math.random() * Math.PI * 2, d = 6 + Math.random() * spread;
+      const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+      // First try clear sand; then any open ground (promenades and paths are fine for pickups).
+      const strict = tries < count * 60;
+      if (this.isWater(px, pz) || !this.hasChunkAt(px, pz)) continue;
+      if (strict ? !this.isBeach(px, pz) || !this.beachClear(px, pz) : this.isOccupied(px, pz, 1)) continue;
+      if (out.some(([ox, oz]) => Math.hypot(ox - px, oz - pz) < 8)) continue;
+      out.push([px, pz]);
+    }
+    return out;
+  }
+
+  /** Sand along the chunk's sea coastline (generated, see BeachGenerator). */
+  private buildBeach(c: BuiltChunk): void {
+    if (typeof document === 'undefined') return;
+    const { coast, bounds } = this.chunkCoast(c);
+    if (!coast.length) return;
+    const geo = buildBeachGeometry(coast, bounds, {
+      isWater: (x, z) => this.isWater(x, z, c),
+      wild: (x, z) => !c.buildingIndex.hit(x, z, 18) && !c.roadIndex.hit(x, z, 8),
+    });
+    if (!geo) return;
+    const mesh = new THREE.Mesh(geo, beachMaterial());
+    mesh.name = 'beach';
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    c.group.add(mesh);
+  }
+
+  private buildVegetation(c: BuiltChunk): void {
+    for (const v of c.vegetation) {
+      c.detail.remove(v);
+      v.dispose();
+    }
+    const trees = placeTrees(c.key, c.data.trees, c.data.landuse, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x,z)=>this.inHomePlot(x,z)||this.landmarkReserved(x,z), isWater: (x, z) => this.inHomePlot(x,z) || this.landmarkReserved(x,z) || this.isWater(x, z, c) }, this.opts.vegetationDensity);
+    const { coast, bounds } = this.chunkCoast(c);
     if (coast.length) trees.push(...placeCoastalTrees(c.key, coast, bounds, { buildings: c.buildingIndex, roads: c.roadIndex, isReserved: (x, z) => this.inHomePlot(x, z) || this.landmarkReserved(x, z), isWater: (x, z) => this.isWater(x, z, c) }, this.opts.vegetationDensity));
     const veg = buildVegetation(trees);
     c.vegetation = veg.meshes;

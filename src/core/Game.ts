@@ -20,7 +20,11 @@ import { roomPanel } from '../ui/RoomPanel';
 import { MissionDirector } from '../systems/MissionDirector';
 import { missionPanel, MissionTracker } from '../ui/MissionPanel';
 import { FestivalFx } from '../world/FestivalFx';
+import { seatRider } from '../vehicles/Rider';
+import type { VehicleKind } from '../vehicles/VehiclePhysics';
 import { Wildlife } from '../world/Wildlife';
+import { Campfire } from '../world/Campfire';
+import { MissionVisuals } from '../world/MissionVisuals';
 import { missionById, PLACES } from '../systems/Missions';
 import { Navigation } from '../systems/Navigation';
 import { Discoveries } from '../systems/Discoveries';
@@ -73,10 +77,14 @@ export class Game {
 
   private riding=false;
   private roomEnvironment=false;
+  private pedal = 0;
   private missions!: MissionDirector;
   private missionTracker!: MissionTracker;
   private festivalFx!: FestivalFx;
   private wildlife!: Wildlife;
+  private campfire!: Campfire;
+  private missionVisuals!: MissionVisuals;
+  private campfireTimer = 0;
   private trackerTimer = 0;
   private readonly ridePosition=new THREE.Vector3();
   private rideYaw=0;
@@ -640,7 +648,7 @@ export class Game {
 
   private networkSnapshot():PlayerSnapshot {
     const v=this.vehicles.driving,p=v?v.position:this.riding?this.ridePosition:this.player.position,s=this.settings.get();
-    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
+    return {seq:0,name:s.playerName.slice(0,32),character:s.character,x:p.x,y:v||this.riding?p.y:this.player.renderPos.y,z:p.z,yaw:v?v.yaw:this.riding?this.rideYaw:this.player.yaw,speed:v?Math.abs(v.physics.forwardSpeed()):this.player.groundSpeed,dancing:this.player.anim.dancing,swim:!v&&!this.riding&&this.player.swimming,vehicle:v?{x:p.x,y:p.y,z:p.z,yaw:v.yaw,flying:v.physics.flying,boat:v.physics.boat,...(v.kind!=='car'?{kind:v.kind}:{}),id:v.id,color:v.color,headlights:v.headlightsOn,braking:v.physics.braking,qx:v.quaternion.x,qy:v.quaternion.y,qz:v.quaternion.z,qw:v.quaternion.w}:null};
   }
 
   /** Co-op missions at real places, shared in rooms, plus the Thadingyut festival. */
@@ -649,6 +657,8 @@ export class Game {
     const view = byId.get(PLACES.viewPoint);
     this.festivalFx = new FestivalFx(this.scene, view ? { x: view.x, z: view.z } : null);
     this.wildlife = new Wildlife(this.scene, (x, z) => this.world.isBlocked(x, z));
+    this.campfire = new Campfire(this.scene);
+    this.missionVisuals = new MissionVisuals(this.scene, this.hud.root);
     this.missions = new MissionDirector({
       rooms: this.rooms,
       players: () => {
@@ -657,13 +667,20 @@ export class Game {
         return this.rooms.active ? [me, ...this.remotePlayers.list()] : [me];
       },
       hours: () => this.cycle.hours,
-      place: (ref) => (ref === 'home' ? { x: this.housing.home.x, z: this.housing.home.z } : (() => { const l = byId.get(ref); return l ? { x: l.x, z: l.z } : null; })()),
+      place: (ref) => (ref === 'home' ? { x: this.housing.home.x, z: this.housing.home.z } : ref === PLACES.campfire ? (this.campfire.placed ? { x: this.campfire.x, z: this.campfire.z } : null) : (() => { const l = byId.get(ref); return l ? { x: l.x, z: l.z } : null; })()),
+      scatter: (x, z, count, spread) => this.world.beachPoints(x, z, count, spread),
       lang: () => getLang(),
       toast: (text, sec) => this.hud.toast(text, sec),
       fx: (kind, x, z) => {
         const site = this.world.pagodaSites().reduce<{ s: ReturnType<WorldManager['pagodaSites']>[number] | null; d: number }>((b, s) => { const d = Math.hypot(s.layout.centre[0] - x, s.layout.centre[1] - z); return d < b.d ? { s, d } : b; }, { s: null, d: 120 }).s ?? undefined;
         this.festivalFx.play(kind, x, z, site);
-        this.audio.splash();
+        if (kind !== 'pickup' && kind !== 'tag') this.audio.splash();
+        const me = this.player.position;
+        const mine = Math.hypot(me.x - x, me.z - z) < 2.5;
+        if (kind === 'campfire') this.campfire.boost(900);
+        // Your own "sit" or "dance" action: sit on the nearest bench, or start dancing.
+        if (kind === 'sit' && mine && !this.vehicles.driving) { const seat = this.campfire.nearestSeat(me.x, me.z, 12); if (seat) this.sitAt(seat, 0); }
+        if (kind === 'dance' && mine && !this.vehicles.driving) { this.standUp(); this.player.anim.startDance(); this.audio.startDanceMusic(); }
       },
       target: (at) => this.setDestination(at),
       onChange: () => this.missionTracker?.refresh(),
@@ -864,6 +881,13 @@ export class Game {
     // Visual interpolation.
     if (this.player) this.player.update(dt, this.state === 'playing' ? alpha : 1);
     if (this.vehicles) this.vehicles.update(dt, this.state === 'playing' ? alpha : 1);
+    // On a motorbike or bicycle your character stays visible, seated on it.
+    const ridden = this.vehicles?.driving;
+    if (ridden && ridden.kind !== 'car') {
+      this.pedal += dt * Math.abs(ridden.physics.forwardSpeed()) * 1.6;
+      this.player.rig.root.visible = true;
+      seatRider(this.player.rig, ridden.visual, ridden.kind, this.pedal);
+    }
     if (this.traffic) this.traffic.update(dt, this.cycle.compute().night > 0.4);
 
     const menuLike = this.state === 'menu' || this.state === 'boot' || (this.state === 'map' && this.mapReturn === 'menu');
@@ -890,7 +914,8 @@ export class Game {
           inVehicle: !!driving||this.riding,
           ignore: [this.player.collider, ...this.vehicles.colliders, ...(this.traffic?.colliders() ?? [])],
         });
-        this.player.setVisible(!this.cam.isFirstPerson || !!driving);
+        // Riders stay visible on motorbikes and bicycles (seated by seatRider).
+        if (!driving || driving.kind === 'car') this.player.setVisible(!this.cam.isFirstPerson || !!driving);
         if (this.cam.isFirstPerson && !driving&&!this.riding) this.player.faceYaw(this.cam.yaw);
       } else {
         inp.consumeMouse();
@@ -939,6 +964,16 @@ export class Game {
       this.updateDiscoveries(dt, focus.x, focus.z);
       this.missions.update(dt);
       this.wildlife.update(Math.min(dt, 0.05), { px: focus.x, pz: focus.z, day: this.cycle.compute().day });
+      // The campfire goes on the sand near Sittwe Point once that area has loaded.
+      const view = this.manifest?.landmarks.find((l) => l.id === PLACES.viewPoint);
+      if (!this.campfire.placed && view && (this.campfireTimer -= dt) <= 0) {
+        this.campfireTimer = 2;
+        if (this.world.hasChunkAt(view.x, view.z)) { const spot = this.world.beachSpotNear(view.x, view.z, 70, 500); if (spot) this.campfire.place(spot.x, spot.z); }
+      }
+      this.campfire.update(dt, this.cycle.compute().night, Math.hypot(focus.x - this.campfire.x, focus.z - this.campfire.z));
+      const selfId = this.rooms.selfId ?? 'me';
+      this.missionVisuals.update(dt, this.missions.state, selfId, (id) => (id === selfId ? this.player.rig.root.position : this.remotePlayers.positionOf(id)));
+      this.remotePlayers.hideTags = MissionVisuals.hidingFrom(this.missions.state, selfId);
       this.festivalFx.update(dt, { night: this.cycle.compute().night, festival: this.missions.festival, px: focus.x, pz: focus.z, sites: this.world.pagodaSites(), camera: this.camera });
       this.trackerTimer -= dt;
       if (this.trackerTimer <= 0) { this.trackerTimer = 0.5; this.missionTracker.refresh(); }
@@ -974,12 +1009,14 @@ export class Game {
           const i = this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6);
           if (i >= 0) {
             const t0 = this.traffic.takeOver(i);
-            this.enterVehicle(this.vehicles.spawnAt(t0.x, t0.z, t0.yaw, t0.color));
+            this.enterVehicle(this.vehicles.spawnAt(t0.x, t0.z, t0.yaw, t0.color, t0.kind));
           }
         }
       }
     }
-    if (inp.wasPressed('KeyV') && !driving) this.spawnCarNearby();
+    if (inp.wasPressed('KeyV') && !driving) this.spawnCarNearby('car');
+    if (inp.wasPressed('KeyB') && !driving) this.spawnCarNearby('motorbike');
+    if (inp.wasPressed('KeyN') && !driving) this.spawnCarNearby('bicycle');
     // Si Mee (ဆီမီး) oil-lamp dance — performed by the Rakhine Girl.
     if (inp.wasPressed('KeyJ') && !driving) {
       if (this.player.anim.dancing) this.stopDance();
@@ -993,7 +1030,7 @@ export class Game {
     }
     if (this.player.anim.dancing && (inp.isDown('KeyW') || inp.isDown('KeyA') || inp.isDown('KeyS') || inp.isDown('KeyD') || inp.isDown('Space') || Math.hypot(inp.touchMove.x,inp.touchMove.y)>.2)) this.stopDance();
     if (inp.wasPressed('KeyC')) this.hud.toast(`${t('cameraMode')}: ${this.cam.cycleMode(!!driving)}`, 1.2);
-    if(inp.wasPressed('KeyG') && driving){driving.physics.toggleFlight();this.hud.toast(driving.physics.landing?'Landing — keep clear of buildings':driving.physics.flying?'Flight: Space up · Ctrl down · WASD steer · G land':'Ground drive',3);}
+    if(inp.wasPressed('KeyG') && driving && driving.physics.spec.amphibious){driving.physics.toggleFlight();this.hud.toast(driving.physics.landing?'Landing — keep clear of buildings':driving.physics.flying?'Flight: Space up · Ctrl down · WASD steer · G land':'Ground drive',3);}
     if (inp.wasPressed('KeyL') && driving) this.vehicles.toggleHeadlights();
     if (inp.wasPressed('KeyR') && driving) {
       this.vehicles.resetDriven();
@@ -1006,6 +1043,9 @@ export class Game {
     }
     if (inp.wasPressed('KeyE') && !driving && this.missions.pressE()) {
       // A mission action used E (buy, drink, light lamps…).
+    } else if (inp.wasPressed('KeyE') && !driving && (this.sitting || this.campfire.nearestSeat(this.player.position.x, this.player.position.z)) && !this.nearPagoda()) {
+      const seat = this.campfire.nearestSeat(this.player.position.x, this.player.position.z);
+      if (this.sitting) this.standUp(); else if (seat) this.sitAt(seat, 0);
     } else if (inp.wasPressed('KeyE') && !driving && this.world.nearHomeDoor(this.player.position.x,this.player.position.z)) {
       this.world.toggleHomeDoor();
     } else if (inp.wasPressed('KeyE') && !driving && this.pedestrians.nearby(this.player.position.x,this.player.position.z)) {
@@ -1029,7 +1069,7 @@ export class Game {
   }
 
   /** Spawns a drivable car in the nearest road lane (keeps at most 4 player-spawned cars). */
-  private spawnCarNearby(): void {
+  private spawnCarNearby(kind: VehicleKind = 'car'): void {
     const p = this.player.position;
     const g = this.nav?.graph;
     let x = p.x + 3;
@@ -1053,13 +1093,14 @@ export class Game {
     for(let i=0;i<18;i++) {
       const offset=(i%2?1:-1)*Math.ceil(i/2)*6;
       const cx=x-Math.sin(yaw)*offset,cz=z-Math.cos(yaw)*offset;
-      if(this.world.hasChunkAt(cx,cz)&&this.world.isOnRoad(cx,cz,0)&&!this.world.isBlocked(cx,cz)&&this.vehicles.canPlace(cx,cz,yaw)){spot={x:cx,z:cz};break;}
+      if(this.world.hasChunkAt(cx,cz)&&this.world.isOnRoad(cx,cz,0)&&!this.world.isBlocked(cx,cz)&&this.vehicles.canPlace(cx,cz,yaw,undefined,kind)){spot={x:cx,z:cz};break;}
     }
     if(!spot){this.hud.toast('No clear parking space nearby. Move along the road and try V again.',3);return;}
     const extras = this.vehicles.vehicles.slice(this.vehicles.baseCount).filter((v) => v !== this.vehicles.driving);
     if (extras.length >= 4) this.vehicles.remove(extras[0]!);
-    this.vehicles.spawnAt(spot.x, spot.z, yaw, 0xf1f3f4);
-    this.hud.toast('🚗 Car spawned nearby — press F to drive', 2);
+    const palette = kind === 'motorbike' ? [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0] : kind === 'bicycle' ? [0x2f7d4f, 0x1d3f7a, 0x222428, 0xc23b3b] : [0xf1f3f4];
+    this.vehicles.spawnAt(spot.x, spot.z, yaw, palette[Math.floor(Math.random() * palette.length)]!, kind);
+    this.hud.toast(kind === 'motorbike' ? '🏍️ Motorbike spawned nearby — press F to ride' : kind === 'bicycle' ? '🚲 Bicycle spawned nearby — press F to ride' : '🚗 Car spawned nearby — press F to drive', 2);
   }
 
   // ---------------------------------------------------------------------------
@@ -1081,9 +1122,9 @@ export class Game {
     return site.layout.mats.find(([x, z]) => Math.hypot(p.x - x, p.z - z) < 1.3) ?? null;
   }
 
-  private sitAt(mat: [number, number, number]): void {
+  private sitAt(mat: [number, number, number], y = PLATFORM_Y): void {
     this.stopDance();
-    this.player.teleport(mat[0], mat[1], mat[2], PLATFORM_Y);
+    this.player.teleport(mat[0], mat[1], mat[2], y);
     this.sitting = true;
     this.hud.toast('Sitting quietly — move or press E to stand', 2.5);
   }
@@ -1225,6 +1266,7 @@ export class Game {
     else if (!driving) {
       const mission = this.missions.prompt();
       if (mission) prompt = `E — ${mission}`;
+      else if (this.campfire.nearestSeat(p.x, p.z) && !this.nearPagoda()) prompt = this.sitting ? 'E — Stand up' : 'E — Sit by the campfire';
       else if (this.world.nearHomeDoor(p.x,p.z)) prompt = 'E — Open / close home door';
       else if(this.pedestrians.nearby(p.x,p.z)) prompt='E — '+this.pedestrians.nearby(p.x,p.z);
       else if (this.vehicles.nearest(this.player.position) || (this.traffic && this.traffic.nearest(this.player.position.x, this.player.position.z, 2.6) >= 0)) prompt = t('enterVehicle');
@@ -1290,7 +1332,7 @@ export class Game {
     this.hud.minimap.update(p.x, p.z, this.facingHeading(), performance.now());
     if (this.rooms) {
       const others = this.rooms.active ? this.remotePlayers.list() : [];
-      this.hud.minimap.setPlayers(others);
+      this.hud.minimap.setPlayers(MissionVisuals.hidingFrom(this.missions.state, this.rooms.selfId ?? 'me') ? [] : others);
       this.updateFollow(dt, others);
     }
 

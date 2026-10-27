@@ -58,7 +58,7 @@ General: **M** full-screen map (click to set a destination), **/** search places
 | Coastline → sea, water bodies, waterways | Hipped roofs on small houses | Window/door detailing, facade colours |
 | Land use, named landmarks & places | | Stupa markers at mapped Buddhist sites without a footprint |
 | | | Flat terrain (no elevation model) |
-| | | Sea waves and shore foam, coastal palms and mangroves placed along the real coastline, seagulls and jumping fish |
+| | | Sea waves and shore foam; beach sand (no beaches are mapped), coastal palms and mangroves placed along the real coastline; the Point Beach campfire; seagulls and jumping fish; motorbike and bicycle traffic |
 
 Missing buildings or roads are never replaced with invented ones. Travel, spawn, save-restore and exiting a car always place the player at the nearest clear spot (never inside a building, tree, statue or water).
 

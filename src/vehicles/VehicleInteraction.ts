@@ -4,7 +4,7 @@ import { Layer, groups } from '../physics/CollisionLayers';
 import { GROUND_Y, type PhysicsWorld } from '../physics/PhysicsWorld';
 import { Vehicle, type DriveInput } from './Vehicle';
 import { BODY_COLORS } from './VehicleModel';
-import { CAR } from './VehiclePhysics';
+import type { VehicleKind } from './VehiclePhysics';
 
 const ENTER_DISTANCE = 2.2; // meters from the car's body surface
 
@@ -44,15 +44,16 @@ export class VehicleSystem {
   /** Called when a car turns into a boat on water (true) or back into a car on land (false). */
   onBoatChange: (v: Vehicle, boat: boolean) => void = () => {};
 
-  canPlace(x:number,z:number,yaw:number,ignore?:Vehicle):boolean {
-    if(this.vehicles.some(v=>v!==ignore&&Math.hypot(v.position.x-x,v.position.z-z)<5.5))return false;
+  canPlace(x:number,z:number,yaw:number,ignore?:Vehicle,kind:VehicleKind='car'):boolean {
+    const bike=kind!=='car';
+    if(this.vehicles.some(v=>v!==ignore&&Math.hypot(v.position.x-x,v.position.z-z)<(bike?2.6:5.5)))return false;
     const R=this.physics.R;
-    return !this.physics.world.intersectionWithShape({x,y:GROUND_Y+1,z},{x:0,y:Math.sin(yaw/2),z:0,w:Math.cos(yaw/2)},new R.Cuboid(2.55,.65,2.6),undefined,undefined,ignore?.physics.collider,ignore?.physics.body);
+    return !this.physics.world.intersectionWithShape({x,y:GROUND_Y+1,z},{x:0,y:Math.sin(yaw/2),z:0,w:Math.cos(yaw/2)},bike?new R.Cuboid(.45,.6,1.1):new R.Cuboid(2.55,.65,2.6),undefined,undefined,ignore?.physics.collider,ignore?.physics.body);
   }
 
   /** Adds a drivable car (used for map spawns, player spawns and taken-over traffic). */
-  spawnAt(x: number, z: number, yaw: number, color: number): Vehicle {
-    return this.add(x, z, yaw, color);
+  spawnAt(x: number, z: number, yaw: number, color: number, kind: VehicleKind = 'car'): Vehicle {
+    return this.add(x, z, yaw, color, kind);
   }
 
   /** Removes a car that is not being driven. */
@@ -65,8 +66,8 @@ export class VehicleSystem {
     v.dispose();
   }
 
-  private add(x: number, z: number, yaw: number, color: number): Vehicle {
-    const v = new Vehicle(this.physics, this.nextId++, x, z, yaw, color);
+  private add(x: number, z: number, yaw: number, color: number, kind: VehicleKind = 'car'): Vehicle {
+    const v = new Vehicle(this.physics, this.nextId++, x, z, yaw, color, kind);
     this.vehicles.push(v);
     this.scene.add(v.visual.root);
     return v;
@@ -75,7 +76,7 @@ export class VehicleSystem {
   /** Distance from point to the car's box (in its local frame), meters. */
   distanceTo(v: Vehicle, p: THREE.Vector3): number {
     const local = this.tmp.copy(p).sub(v.position).applyQuaternion(v.quaternion.clone().invert());
-    const he = CAR.halfExtents;
+    const he = v.physics.spec.halfExtents;
     const dx = Math.max(Math.abs(local.x) - he.x, 0);
     const dz = Math.max(Math.abs(local.z) - he.z, 0);
     return Math.hypot(dx, dz);
@@ -97,9 +98,13 @@ export class VehicleSystem {
   enter(v: Vehicle, night: boolean): void {
     this.driving = v;
     v.headlightsOn = night;
-    for (const l of this.headlights) {
+    // Two-wheelers have one headlamp on the handlebars.
+    const bike = v.physics.spec.twoWheeler;
+    this.headlights.forEach((l, i) => {
+      l.position.set(bike ? 0 : i ? 0.6 : -0.6, bike ? 0.5 : 0.15, bike ? -1.0 : -2.15);
+      l.target.position.set(bike ? 0 : (i ? 0.6 : -0.6) * 1.6, -1.2, -16);
       v.visual.root.add(l, l.target);
-    }
+    });
   }
 
   /**
@@ -114,7 +119,7 @@ export class VehicleSystem {
       l.intensity = 0;
     }
     const q = v.quaternion;
-    const he = CAR.halfExtents;
+    const he = v.physics.spec.halfExtents;
     const candidates: Array<[number, number]> = [
       [-(he.x + 0.7), -0.3],
       [he.x + 0.7, -0.3],
@@ -148,7 +153,7 @@ export class VehicleSystem {
       const wet = p.y < 3 && blocked(p.x, p.z);
       // Amphibious: the driven car (or one already floating) turns into a boat on water and back on land.
       if (v.physics.boat && !wet) { v.physics.leaveBoat(); this.onBoatChange(v, false); continue; }
-      if (wet && !v.physics.flying && (v === this.driving || v.physics.boat)) {
+      if (wet && v.physics.spec.amphibious && !v.physics.flying && (v === this.driving || v.physics.boat)) {
         if (!v.physics.boat) { v.physics.enterBoat(); this.onBoatChange(v, true); }
         continue;
       }

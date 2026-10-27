@@ -1,4 +1,4 @@
-import { blocker, emptyState, loadProgress, MissionEngine, missionById, RACE_WIN_BONUS, saveProgress, validMissionState, type FxKind, type Lang, type MissionContext, type MissionProgress, type MissionState, type PlaceRef, type PlayerPos, type Text } from './Missions';
+import { ITEMS, type ItemId, blocker, emptyState, loadProgress, MissionEngine, missionById, RACE_WIN_BONUS, saveProgress, validMissionState, type FxKind, type Lang, type MissionContext, type MissionProgress, type MissionState, type PlaceRef, type PlayerPos, type Text } from './Missions';
 import { festivalActive } from './Thadingyut';
 import type { Rooms } from './Rooms';
 
@@ -8,6 +8,8 @@ export interface DirectorHooks {
   players: () => PlayerPos[];
   hours: () => number;
   place: (ref: PlaceRef) => { x: number; z: number } | null;
+  /** Free beach spots to scatter pickups. */
+  scatter: (x: number, z: number, count: number, spread: number) => Array<[number, number]>;
   lang: () => Lang;
   toast: (text: string, seconds: number) => void;
   fx: (kind: FxKind, x: number, z: number) => void;
@@ -68,7 +70,7 @@ export class MissionDirector {
   }
 
   private ctx(): MissionContext {
-    return { players: this.h.players(), hours: this.h.hours(), place: this.h.place };
+    return { players: this.h.players(), hours: this.h.hours(), place: this.h.place, now: Date.now(), scatter: this.h.scatter };
   }
 
   private say(t: Text, seconds = 3): void {
@@ -77,7 +79,7 @@ export class MissionDirector {
 
   start(id: string): void {
     if (!this.authority) { this.h.rooms.sendToHost({ m: 'start', id }); return; }
-    const err = this.engine.start(id, this.festival);
+    const err = this.engine.start(id, this.festival, this.ctx());
     if (err) this.say(err);
     this.h.onChange();
   }
@@ -110,7 +112,7 @@ export class MissionDirector {
     if (!raw || typeof raw !== 'object') return;
     const r = raw as GuestRequest;
     if (r.m === 'start' && typeof r.id === 'string' && missionById(r.id) && !this.engine.state.id) {
-      const err = this.engine.start(r.id, this.festival);
+      const err = this.engine.start(r.id, this.festival, this.ctx());
       if (err) this.say(err);
     } else if (r.m === 'act') {
       this.engine.act(peer, this.ctx());
@@ -169,8 +171,27 @@ export class MissionDirector {
     const step = s.done ? undefined : def.steps[s.step];
     const at = step ? this.h.place(step.place) : null;
     const me = this.h.players()[0];
-    const items = Object.entries(s.items).filter(([, n]) => n! > 0).map(([k, n]) => `${{ beer: '🍺', seafood: '🦐', coffee: '☕', candles: '🕯️', lantern: '🏮', fruit: '🍌', flowers: '💐' }[k as keyof typeof s.items]}×${n}`).join(' ');
-    const wait = step && at ? blocker(step, this.ctx(), at) : null;
+    const items = Object.entries(s.items).filter(([, n]) => n! > 0).map(([k, n]) => `${ITEMS[k as ItemId].icon}×${n}`).join(' ');
+    let wait: Text | null = step && at && !step.collect && !step.tag && !step.hide ? blocker(step, this.ctx(), at) : null;
+    // Live mini-game status.
+    const players = this.h.players();
+    const nameOf = (id: string | null) => players.find((p) => p.id === id)?.name ?? '?';
+    const left = s.endsAt ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000)) : 0;
+    const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    if (step?.collect) {
+      const got = s.pickups.filter((_, k) => k % 3 === 2 && s.pickups[k]! >= 0).length;
+      const board = players.map((p) => `${p.name} ${s.scores[p.id] ?? 0}`).join(' · ');
+      const total = s.pickups.length / 3 || step.collect.count;
+      wait = { en: `${ITEMS[step.collect.item].icon} ${got}/${total} found${step.collect.competitive ? ` — ${board}` : ''}`, rki: `${ITEMS[step.collect.item].icon} ${got}/${total}${step.collect.competitive ? ` — ${board}` : ''}` };
+    } else if (step?.tag) {
+      const me = s.it === this.selfId();
+      wait = { en: `${me ? '🔴 YOU are IT — touch someone!' : `🏃 ${nameOf(s.it)} is IT — run!`} · ${clock} left`, rki: `${me ? '🔴 မင်း IT ဖြစ်နီရေ!' : `🏃 ${nameOf(s.it)} IT ဖြစ်နီရေ`} · ${clock}` };
+    } else if (step?.hide) {
+      const seeking = s.phase === 'seek';
+      const me = s.seeker === this.selfId();
+      const hiders = players.length - 1;
+      wait = { en: me ? (seeking ? `👀 Find everyone! ${s.found.length}/${hiders} · ${clock} left` : `🙈 Counting… ${left}s`) : seeking ? `🤫 ${nameOf(s.seeker)} is seeking · ${clock} left` : `🏃 Hide! ${nameOf(s.seeker)} is counting · ${left}s`, rki: me ? `👀 ရှာ! ${s.found.length}/${hiders} · ${clock}` : `🤫 ${nameOf(s.seeker)} ရှာနီရေ · ${clock}` };
+    }
     return {
       icon: def.icon,
       title: pick(def.title),

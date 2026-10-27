@@ -30,6 +30,8 @@ export interface StepAction {
   each?: boolean;
   /** Visual effect played for everyone when the action happens. */
   fx?: FxKind;
+  /** `each` actions must all happen within a few seconds of each other (e.g. cheers together). */
+  sync?: boolean;
 }
 
 export interface MissionStep {
@@ -41,6 +43,12 @@ export interface MissionStep {
   /** First player to arrive wins (races). */
   race?: boolean;
   action?: StepAction;
+  /** Items scattered around the place; walk over them to pick up. Competitive: most pickups wins. */
+  collect?: { item: ItemId; count: number; spread: number; competitive?: boolean };
+  /** Tag: whoever is "IT" passes it by touching someone; least time as IT wins. */
+  tag?: { seconds: number };
+  /** Hide and seek: the seeker waits, then has a time limit to find everyone. */
+  hide?: { hideSeconds: number; seekSeconds: number };
 }
 
 export interface MissionDef {
@@ -49,8 +57,10 @@ export interface MissionDef {
   intro: Text;
   icon: string;
   season: 'any' | 'thadingyut';
-  /** Shown as "best with friends"; missions still work solo. */
+  /** Shown as "best with friends". */
   social: boolean;
+  /** Friends-only missions need this many players in a room. */
+  minPlayers?: number;
   budget: number;
   reward: number;
   /** Extra kyat when finished at sunset (17:00–19:00). */
@@ -58,8 +68,8 @@ export interface MissionDef {
   steps: MissionStep[];
 }
 
-export type ItemId = 'beer' | 'seafood' | 'coffee' | 'candles' | 'lantern' | 'fruit' | 'flowers';
-export type FxKind = 'cheers' | 'lamps' | 'lanterns' | 'fireworks' | 'feast' | 'gadaw';
+export type ItemId = 'beer' | 'seafood' | 'coffee' | 'candles' | 'lantern' | 'fruit' | 'flowers' | 'driftwood' | 'shell';
+export type FxKind = 'cheers' | 'lamps' | 'lanterns' | 'fireworks' | 'feast' | 'gadaw' | 'campfire' | 'dance' | 'pickup' | 'tag' | 'sit';
 
 export const ITEMS: Record<ItemId, { icon: string; name: Text }> = {
   beer: { icon: '🍺', name: { en: 'Myanmar Beer', rki: 'မြန်မာဘီယာ' } },
@@ -68,6 +78,8 @@ export const ITEMS: Record<ItemId, { icon: string; name: Text }> = {
   candles: { icon: '🕯️', name: { en: 'Oil lamps & candles', rki: 'ဆီမီးနန့် ဖယောင်းတိုင်' } },
   lantern: { icon: '🏮', name: { en: 'Paper sky lantern', rki: 'မီးပုံးပျံ' } },
   fruit: { icon: '🍌', name: { en: 'Fruit offering', rki: 'သစ်သီးလက်ဆောင်' } },
+  driftwood: { icon: '🪵', name: { en: 'Driftwood', rki: 'ပင်လယ်ထင်း' } },
+  shell: { icon: '🐚', name: { en: 'Sea shell', rki: 'ခရုခွံ' } },
   flowers: { icon: '💐', name: { en: 'Flowers', rki: 'ပန်း' } },
 };
 
@@ -83,6 +95,8 @@ export const PLACES = {
   uOttama: 'node/4303566099', // U Ottama memorial statue
   clockTower: 'node/4303580092',
   home: 'home',
+  /** The beach campfire near Sittwe Point (placed on the sand at load). */
+  campfire: 'campfire',
 } as const;
 
 const T = (en: string, rki: string): Text => ({ en, rki });
@@ -90,6 +104,7 @@ const T = (en: string, rki: string): Text => ({ en, rki });
 export const MISSIONS: MissionDef[] = [
   {
     id: 'point-beers',
+    minPlayers: 2,
     icon: '🍻',
     title: T('Sunset beers at Point Beach', 'ပွိုင့်ကမ်းခြေ နီဝင်ချိန်မှာ ဘီယာသောက်ဖို့'),
     intro: T('Buy beer at Golden Fish Mini Market, meet your friends at Point Beach and drink together. Finish at sunset for a bonus.', 'Golden Fish စတိုးမှာ ဘီယာဝယ်ပြီး ပွိုင့်ကမ်းခြေမှာ အပေါင်းအသင်းတိနန့် အတူသောက်ကတ်မေ။ နီဝင်ချိန်မှာ ပြီးကေ ဆုကြေးအပိုရဖို့။'),
@@ -102,11 +117,12 @@ export const MISSIONS: MissionDef[] = [
       { text: T('Go to Golden Fish Mini Market', 'Golden Fish စတိုးကို လားပါ'), place: PLACES.goldenFish, radius: 20 },
       { text: T('Buy beer for everyone', 'အဖွဲ့သားတိအားလုံးအတွက် ဘီယာဝယ်ပါ'), place: PLACES.goldenFish, radius: 20, action: { verb: T('Buy Myanmar Beer (2,500 Ks each)', 'မြန်မာဘီယာ ဝယ်ဖို့ (တဗူး ၂,၅၀၀ ကျပ်)'), cost: 2500, perPlayer: true, gives: { item: 'beer', count: 1 } } },
       { text: T('Meet everyone at Point Beach', 'ပွိုင့်ကမ်းခြေမှာ အားလုံးဆုံကတ်ပါ'), place: PLACES.viewPoint, radius: 60, together: true },
-      { text: T('Cheers! Everyone drinks', 'ချီးယားစ်! အားလုံး သောက်ကတ်မေ'), place: PLACES.viewPoint, radius: 60, together: true, action: { verb: T('Drink your beer — cheers!', 'ဘီယာသောက်ဖို့ — ချီးယားစ်!'), each: true, uses: { item: 'beer', count: 1 }, fx: 'cheers' } },
+      { text: T('Cheers! Everyone drinks', 'ချီးယားစ်! အားလုံး သောက်ကတ်မေ'), place: PLACES.viewPoint, radius: 60, together: true, action: { verb: T('Drink your beer — cheers! (all within 5 s)', 'ဘီယာသောက်ဖို့ — ချီးယားစ်! (၅ စက္ကန့်အတွင်း အားလုံး)'), each: true, sync: true, uses: { item: 'beer', count: 1 }, fx: 'cheers' } },
     ],
   },
   {
     id: 'bay-seafood',
+    minPlayers: 2,
     icon: '🦐',
     title: T('Seafood dinner at The Bay', 'The Bay မှာ ပင်လယ်စာညစာ'),
     intro: T('Ride together to The Bay near Sittwe Point and share a seafood dinner.', 'ပွိုင့်နားက The Bay ကို အတူလားပြီး ပင်လယ်စာ စားကတ်မေ။'),
@@ -137,6 +153,7 @@ export const MISSIONS: MissionDef[] = [
   },
   {
     id: 'race-point',
+    minPlayers: 2,
     icon: '🏁',
     title: T('Race: U Ottama statue to the Point', 'ပြိုင်ပွဲ: ဦးဥတ္တမရုပ်တုက ပွိုင့်အထိ'),
     intro: T('Line up at the U Ottama statue, then race to View Point. Cars, flying and boats all allowed. First one there wins.', 'ဦးဥတ္တမရုပ်တုမှာ စုကတ်ပြီး View Point အထိ ပြိုင်ကတ်မေ။ ကား၊ လီယာဉ်နန့် လှေ အကုန်သုံးလို့ရရေ။ အယင်ရောက်ရေလူ နိုင်ဖို့။'),
@@ -164,6 +181,68 @@ export const MISSIONS: MissionDef[] = [
       { text: T('Walk to Satkyar Muni Pagoda', 'သကျမုနိဘုရားကို လမ်းလျှောက်လားပါ'), place: PLACES.satkyarMuni, radius: 25, together: true },
     ],
   },
+  // ---- Friends-only mini-games ----
+  {
+    id: 'campfire-night',
+    minPlayers: 2,
+    icon: '🔥',
+    title: T('Beach campfire night', 'ကမ်းခြေ မီးပုံပွဲည'),
+    intro: T('Collect driftwood along Point Beach, light the campfire together after dark, sit around it and dance.', 'ပွိုင့်ကမ်းခြေမှာ ပင်လယ်ထင်း ကောက်ပြီး ညမှောင်ရေအခါ မီးပုံ အတူမွှေးကတ်၊ ထိုင်ပြီး ကကတ်မေ။'),
+    season: 'any',
+    social: true,
+    budget: 0,
+    reward: 3500,
+    steps: [
+      { text: T('Collect 5 pieces of driftwood on the beach', 'ကမ်းခြေမှာ ပင်လယ်ထင်း ၅ ချောင်း ကောက်ပါ'), place: PLACES.campfire, radius: 200, collect: { item: 'driftwood', count: 5, spread: 110 } },
+      { text: T('Light the campfire together after dark', 'ညမှောင်ရေအခါ မီးပုံ အတူမွှေးပါ'), place: PLACES.campfire, radius: 9, together: true, night: true, action: { verb: T('Light the campfire', 'မီးပုံ မွှေးဖို့'), uses: { item: 'driftwood', count: 5 }, fx: 'campfire' } },
+      { text: T('Everyone sits by the fire', 'အားလုံး မီးပုံဘေးမှာ ထိုင်ကတ်'), place: PLACES.campfire, radius: 9, together: true, action: { verb: T('Sit by the fire', 'မီးပုံဘေး ထိုင်ဖို့'), each: true, fx: 'sit' } },
+      { text: T('Dance around the fire together!', 'မီးပုံပတ်ပြီး အတူ ကကတ်!'), place: PLACES.campfire, radius: 12, together: true, action: { verb: T('Dance! (all within 5 s)', 'ကဖို့! (၅ စက္ကန့်အတွင်း)'), each: true, sync: true, fx: 'dance' } },
+    ],
+  },
+  {
+    id: 'shell-hunt',
+    minPlayers: 2,
+    icon: '🐚',
+    title: T('Shell treasure hunt', 'ခရုခွံ ရှာပွဲ'),
+    intro: T('Ten shells are hidden on the sand along Point Beach, around the campfire. Grab them before your friends do — most shells wins.', 'ပွိုင့်ကမ်းခြေမှာ ခရုခွံ ၁၀ ခု ဝှက်ထားရေ။ အများဆုံး ကောက်ရသူ နိုင်ရေ။'),
+    season: 'any',
+    social: true,
+    budget: 0,
+    reward: 2500,
+    steps: [
+      { text: T('Grab the most shells!', 'ခရုခွံ အများဆုံး ကောက်ပါ!'), place: PLACES.campfire, radius: 300, collect: { item: 'shell', count: 10, spread: 150, competitive: true } },
+    ],
+  },
+  {
+    id: 'tag-point',
+    minPlayers: 2,
+    icon: '🏃',
+    title: T('Tag at the Point', 'ပွိုင့်မှာ ဖမ်းတမ်းကစား'),
+    intro: T('One player is IT and passes it by touching someone. After 2 minutes, whoever was IT the least wins. Stay near View Point!', 'IT ဖြစ်ရေလူက တခြားလူကို ထိရေ။ ၂ မိနစ်ပြီးရေအခါ IT အနည်းဆုံးဖြစ်ခရေလူ နိုင်ရေ။'),
+    season: 'any',
+    social: true,
+    budget: 0,
+    reward: 2000,
+    steps: [
+      { text: T('Everyone meets at View Point', 'View Point မှာ အားလုံးဆုံကတ်'), place: PLACES.viewPoint, radius: 45, together: true },
+      { text: T('Tag! Don\'t be IT when time runs out', 'ဖမ်းတမ်း! အချိန်ကုန်ရေအခါ IT မဖြစ်စီနန့်'), place: PLACES.viewPoint, radius: 200, tag: { seconds: 120 } },
+    ],
+  },
+  {
+    id: 'hide-seek',
+    minPlayers: 2,
+    icon: '🙈',
+    title: T('Hide and seek at the Point', 'ပွိုင့်မှာ ပုန်းတမ်းကစား'),
+    intro: T('Meet at View Point. The seeker\'s screen goes dark for 25 s while everyone hides; then they have 3 minutes to find you.', 'View Point မှာဆုံပါ။ ရှာမည့်သူ မျက်စိမှိတ်ထားစဉ် ပုန်းကတ်၊ ပြီးရင် ၃ မိနစ်အတွင်း ရှာရေ။'),
+    season: 'any',
+    social: true,
+    budget: 0,
+    reward: 2500,
+    steps: [
+      { text: T('Everyone meets at View Point', 'View Point မှာ အားလုံးဆုံကတ်'), place: PLACES.viewPoint, radius: 45, together: true },
+      { text: T('Hide and seek!', 'ပုန်းတမ်း!'), place: PLACES.viewPoint, radius: 250, hide: { hideSeconds: 25, seekSeconds: 180 } },
+    ],
+  },
   // ---- Thadingyut, the Festival of Lights ----
   {
     id: 'thadingyut-lamps',
@@ -182,6 +261,7 @@ export const MISSIONS: MissionDef[] = [
   },
   {
     id: 'thadingyut-lanterns',
+    minPlayers: 2,
     icon: '🏮',
     title: T('Thadingyut: sky lanterns at Point Beach', 'သီတင်းကျွတ်: ပွိုင့်မှာ မီးပုံးပျံလွှတ်ဖို့'),
     intro: T('Buy paper lanterns at May Yu Market, then release them together over the sea at Point Beach at night.', 'မေယုဈေးမှာ မီးပုံးပျံဝယ်ပြီး ညအချိန် ပွိုင့်ကမ်းခြေမှာ အတူလွှတ်ကတ်မေ။'),
@@ -236,10 +316,26 @@ export interface MissionState {
   event: { text: Text; fx?: FxKind; x?: number; z?: number } | null;
   /** Set when finished: kyat each player earns, and the race winner if any. */
   done: { reward: number; winner?: string; winnerName?: string; at: number } | null;
+  /** Mini-games. Pickups are [x, z, takenBy-index-or--1] triples. */
+  pickups: number[];
+  scores: Record<string, number>;
+  /** Tag: who is IT, and how long each player has been IT (s). */
+  it: string | null;
+  itTime: Record<string, number>;
+  /** Hide and seek. */
+  seeker: string | null;
+  phase: 'hide' | 'seek' | null;
+  found: string[];
+  /** Timers (ms since epoch). */
+  endsAt: number | null;
+  lastTick: number;
+  lastTag: number;
+  /** First `sync` action time (ms). */
+  syncStart: number;
 }
 
 export function emptyState(): MissionState {
-  return { id: null, step: 0, items: {}, budget: 0, acted: [], n: 0, event: null, done: null };
+  return { id: null, step: 0, items: {}, budget: 0, acted: [], n: 0, event: null, done: null, pickups: [], scores: {}, it: null, itTime: {}, seeker: null, phase: null, found: [], endsAt: null, lastTick: 0, lastTag: 0, syncStart: 0 };
 }
 
 export interface MissionContext {
@@ -249,10 +345,16 @@ export interface MissionContext {
   hours: number;
   /** Position of a place, or null if it is not on this map. */
   place: (ref: PlaceRef) => { x: number; z: number } | null;
+  /** Current time (ms); defaults to Date.now(). */
+  now?: number;
+  /** Free spots to scatter pickups around a point (beach sand where possible). */
+  scatter?: (x: number, z: number, count: number, spread: number) => Array<[number, number]>;
 }
 
 /** Extra kyat for whoever wins a race. */
 export const RACE_WIN_BONUS = 1000;
+/** Window for synced `each` actions (cheers together). */
+export const SYNC_MS = 5000;
 
 export const isNight = (h: number) => h >= 18 || h < 5;
 export const isSunset = (h: number) => h >= 17 && h < 19;
@@ -284,12 +386,58 @@ export class MissionEngine {
     return d && !this.state.done ? d.steps[this.state.step] : undefined;
   }
 
-  start(id: string, festival: boolean): Text | null {
+  start(id: string, festival: boolean, ctx?: MissionContext): Text | null {
     const def = missionById(id);
     if (!def) return T('Unknown mission', 'မသိရေ မစ်ရှင်');
     if (def.season === 'thadingyut' && !festival) return T('This mission is only during Thadingyut', 'ဒေမစ်ရှင်ကို သီတင်းကျွတ်အချိန်မှာရာ ကစားလို့ရရေ');
+    if (def.minPlayers && (ctx?.players.length ?? 1) < def.minPlayers) return T(`Friends only: needs ${def.minPlayers}+ players — invite friends with Rooms`, `သူငယ်ချင်းတိနန့်ရာ: လူ ${def.minPlayers} ယောက်အထက် လိုရေ — Rooms ကနေ ဖိတ်ပါ`);
     this.state = { ...emptyState(), id, budget: def.budget, n: this.state.n + 1, event: { text: def.title } };
+    if (ctx) this.enterStep(ctx);
     return null;
+  }
+
+  private now(ctx: MissionContext): number {
+    return ctx.now ?? Date.now();
+  }
+
+  /** Sets up the mini-game of the step that just began. */
+  private enterStep(ctx: MissionContext): void {
+    const step = this.currentStep;
+    const st = this.state;
+    st.pickups = [];
+    st.it = null;
+    st.seeker = null;
+    st.phase = null;
+    st.found = [];
+    st.endsAt = null;
+    st.syncStart = 0;
+    if (!step) return;
+    const now = this.now(ctx);
+    st.lastTick = now;
+    const at = ctx.place(step.place);
+    const pick = () => ctx.players[Math.floor(Math.random() * ctx.players.length)]!;
+    if (step.collect && at) {
+      const pts = ctx.scatter?.(at.x, at.z, step.collect.count, step.collect.spread) ?? [];
+      // Always place the full count, so steps that use them stay possible.
+      for (let i = pts.length; i < step.collect.count; i++) pts.push([at.x + Math.cos(i * 2.4) * (8 + i * 4), at.z + Math.sin(i * 2.4) * (8 + i * 4)]);
+      for (const [x, z] of pts) st.pickups.push(Math.round(x * 10) / 10, Math.round(z * 10) / 10, -1);
+      st.scores = {};
+    }
+    if (step.tag && ctx.players.length) {
+      st.it = pick().id;
+      st.itTime = {};
+      st.endsAt = now + step.tag.seconds * 1000;
+      st.lastTag = now;
+      const it = ctx.players.find((p) => p.id === st.it)!;
+      this.emit(T(`🏃 ${it.name} is IT! Run!`, `🏃 ${it.name} က IT ဖြစ်ယာ! ပြေးကတ်!`), 'tag', { x: it.x, z: it.z });
+    }
+    if (step.hide && ctx.players.length) {
+      st.seeker = pick().id;
+      st.phase = 'hide';
+      st.endsAt = now + step.hide.hideSeconds * 1000;
+      const seeker = ctx.players.find((p) => p.id === st.seeker)!;
+      this.emit(T(`🙈 ${seeker.name} is the seeker — everyone else, hide! (${step.hide.hideSeconds}s)`, `🙈 ${seeker.name} က ရှာမည့်သူ — ကျန်လူတိ ပုန်းကတ်!`));
+    }
   }
 
   quit(): void {
@@ -305,20 +453,32 @@ export class MissionEngine {
     const def = this.def!;
     this.state.step = winner ? def.steps.length : this.state.step + 1;
     this.state.acted = [];
-    if (this.state.step < def.steps.length) return;
+    if (this.state.step < def.steps.length) { this.enterStep(ctx); return; }
     const bonus = def.sunsetBonus && isSunset(ctx.hours) ? def.sunsetBonus : 0;
     const reward = def.reward + bonus;
     const ks = reward.toLocaleString('en-US');
     this.state.done = { reward, at: Date.now(), ...(winner ? { winner: winner.id, winnerName: winner.name } : {}) };
-    const head = winner ? `🏁 ${winner.name} wins the race! ` : '';
-    const headR = winner ? `🏁 ${winner.name} ပြိုင်ပွဲနိုင်လားယာ! ` : '';
+    const head = winner ? `🏆 ${winner.name} wins! ` : '';
+    const headR = winner ? `🏆 ${winner.name} နိုင်လားယာ! ` : '';
     this.emit(T(`${head}Mission complete! +${ks} Ks${bonus ? ' (sunset bonus)' : ''}${winner ? ` · winner +${RACE_WIN_BONUS.toLocaleString('en-US')} Ks` : ''}`, `${headR}မစ်ရှင်ပြီးလားယာ! +${ks} ကျပ်`), winner ? 'fireworks' : undefined, winner ? ctx.place(def.steps[def.steps.length - 1]!.place) ?? undefined : undefined);
   }
 
   /** Checks arrival steps; call a few times per second. */
   update(ctx: MissionContext): void {
     const step = this.currentStep;
-    if (!step || step.action) return;
+    if (!step) return;
+    if (step.collect) { this.updateCollect(step, ctx); return; }
+    if (step.tag) { this.updateTag(step, ctx); return; }
+    if (step.hide) { this.updateHide(step, ctx); return; }
+    if (step.action) {
+      // Synced actions: if the team was too slow, start the round again.
+      if (step.action.sync && this.state.acted.length > 0 && this.now(ctx) - this.state.syncStart > SYNC_MS && this.state.acted.length < ctx.players.length) {
+        this.state.acted = [];
+        this.state.syncStart = 0;
+        this.emit(T('Too slow! Everyone together this time — cheers again!', 'နှေးလွန်းယာ! အားလုံး တပြိုင်နက် ထပ်ချီးယားစ်!'));
+      }
+      return;
+    }
     const at = ctx.place(step.place);
     if (!at) return;
     if (blocker(step, ctx, at)) return;
@@ -331,6 +491,72 @@ export class MissionEngine {
     }
     this.emit(step.text, undefined, at);
     this.advance(ctx);
+  }
+
+  private winnerBy(ctx: MissionContext, score: (id: string) => number, lowest = false): PlayerPos | undefined {
+    let best: PlayerPos | undefined;
+    for (const p of ctx.players) if (!best || (lowest ? score(p.id) < score(best.id) : score(p.id) > score(best.id))) best = p;
+    return best;
+  }
+
+  private updateCollect(step: MissionStep, ctx: MissionContext): void {
+    const st = this.state, c = step.collect!;
+    let left = 0;
+    for (let i = 0; i < st.pickups.length; i += 3) {
+      if (st.pickups[i + 2]! >= 0) continue;
+      const x = st.pickups[i]!, z = st.pickups[i + 1]!;
+      const who = ctx.players.findIndex((p) => Math.hypot(p.x - x, p.z - z) < 2.4);
+      if (who < 0) { left++; continue; }
+      const p = ctx.players[who]!;
+      st.pickups[i + 2] = who;
+      st.items[c.item] = (st.items[c.item] ?? 0) + 1;
+      st.scores[p.id] = (st.scores[p.id] ?? 0) + 1;
+      const got = st.pickups.filter((_, k) => k % 3 === 2 && st.pickups[k]! >= 0).length;
+      const total = st.pickups.length / 3;
+      this.emit(T(`${ITEMS[c.item].icon} ${p.name} found ${ITEMS[c.item].name.en.toLowerCase()} (${got}/${total})`, `${ITEMS[c.item].icon} ${p.name} ${ITEMS[c.item].name.rki} တွိလားယာ (${got}/${total})`), 'pickup', { x, z });
+    }
+    if (left === 0 && st.pickups.length) this.advance(ctx, c.competitive ? this.winnerBy(ctx, (id) => st.scores[id] ?? 0) : undefined);
+  }
+
+  private updateTag(_step: MissionStep, ctx: MissionContext): void {
+    const st = this.state, now = this.now(ctx);
+    const dt = Math.min(1, (now - st.lastTick) / 1000);
+    st.lastTick = now;
+    if (!st.it) return;
+    st.itTime[st.it] = (st.itTime[st.it] ?? 0) + dt;
+    const it = ctx.players.find((p) => p.id === st.it);
+    if (it && now - st.lastTag > 2500) {
+      const touched = ctx.players.find((p) => p.id !== it.id && Math.hypot(p.x - it.x, p.z - it.z) < 1.9);
+      if (touched) {
+        st.it = touched.id;
+        st.lastTag = now;
+        this.emit(T(`👋 ${it.name} tagged ${touched.name} — ${touched.name} is IT!`, `👋 ${it.name} က ${touched.name} ကို ထိလိုက်ယာ — ${touched.name} IT ဖြစ်ယာ!`), 'tag', { x: touched.x, z: touched.z });
+      }
+    }
+    if (st.endsAt && now >= st.endsAt) this.advance(ctx, this.winnerBy(ctx, (id) => st.itTime[id] ?? 0, true));
+  }
+
+  private updateHide(step: MissionStep, ctx: MissionContext): void {
+    const st = this.state, now = this.now(ctx), h = step.hide!;
+    const seeker = ctx.players.find((p) => p.id === st.seeker);
+    if (!seeker) return;
+    if (st.phase === 'hide' && st.endsAt && now >= st.endsAt) {
+      st.phase = 'seek';
+      st.endsAt = now + h.seekSeconds * 1000;
+      this.emit(T(`👀 Ready or not, here ${seeker.name} comes!`, `👀 ${seeker.name} ရှာလာပြီ!`));
+      return;
+    }
+    if (st.phase !== 'seek') return;
+    for (const p of ctx.players) {
+      if (p.id === seeker.id || st.found.includes(p.id)) continue;
+      if (Math.hypot(p.x - seeker.x, p.z - seeker.z) < 3.5) {
+        st.found.push(p.id);
+        this.emit(T(`🔎 ${seeker.name} found ${p.name}!`, `🔎 ${seeker.name} က ${p.name} ကို တွိလားယာ!`), 'pickup', { x: p.x, z: p.z });
+      }
+    }
+    const hiders = ctx.players.filter((p) => p.id !== seeker.id);
+    if (hiders.every((p) => st.found.includes(p.id))) { this.advance(ctx, seeker); return; }
+    if (st.endsAt && now >= st.endsAt) this.advance(ctx, hiders.find((p) => !st.found.includes(p.id)));
   }
 
   /** What E would do for this player right now (for the on-screen prompt), or null. */
@@ -367,8 +593,9 @@ export class MissionEngine {
     this.state.budget -= cost;
     if (a.gives) this.state.items[a.gives.item] = (this.state.items[a.gives.item] ?? 0) + a.gives.count * times;
     const who = p.name;
-    this.emit(T(`${who}: ${a.verb.en}`, `${who}: ${a.verb.rki}`), a.fx, a.fx === 'cheers' || a.fx === 'gadaw' ? { x: p.x, z: p.z } : at);
+    this.emit(T(`${who}: ${a.verb.en}`, `${who}: ${a.verb.rki}`), a.fx, a.fx === 'cheers' || a.fx === 'gadaw' || a.fx === 'sit' || a.fx === 'dance' ? { x: p.x, z: p.z } : at);
     if (a.each) {
+      if (a.sync && !this.state.acted.length) this.state.syncStart = this.now(ctx);
       this.state.acted.push(playerId);
       if (!ctx.players.every((v) => this.state.acted.includes(v.id))) return null;
     }
@@ -388,6 +615,13 @@ export function validMissionState(raw: unknown): raw is MissionState {
   if (!Array.isArray(s.acted) || s.acted.length > 16 || s.acted.some((a) => typeof a !== 'string' || a.length > 100)) return false;
   if (s.event !== null && (typeof s.event !== 'object' || typeof s.event.text?.en !== 'string' || s.event.text.en.length > 300 || typeof s.event.text.rki !== 'string' || s.event.text.rki.length > 300)) return false;
   if (s.done !== null && (typeof s.done !== 'object' || !Number.isFinite(s.done.reward) || s.done.reward < 0 || s.done.reward > 1e6)) return false;
+  const id = (v: unknown) => v === null || (typeof v === 'string' && v.length < 100);
+  const record = (r: unknown) => !!r && typeof r === 'object' && Object.keys(r).length <= 16 && Object.values(r as object).every((v) => Number.isFinite(v) && v >= 0 && v < 1e5);
+  if (!Array.isArray(s.pickups) || s.pickups.length > 90 || s.pickups.some((v) => !Number.isFinite(v) || Math.abs(v) > 50000)) return false;
+  if (!record(s.scores) || !record(s.itTime) || !id(s.it) || !id(s.seeker)) return false;
+  if (s.phase !== null && s.phase !== 'hide' && s.phase !== 'seek') return false;
+  if (!Array.isArray(s.found) || s.found.length > 16 || !s.found.every((f) => typeof f === 'string' && f.length < 100)) return false;
+  if (s.endsAt !== null && !Number.isFinite(s.endsAt)) return false;
   return true;
 }
 

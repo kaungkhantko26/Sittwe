@@ -4,8 +4,19 @@ import { DEFAULT_ROAD_WIDTH } from '../geo/OSMParser';
 import type { RoadGraph } from '../geo/roadGraph';
 import { Groups } from '../physics/CollisionLayers';
 import { GROUND_Y, type PhysicsWorld } from '../physics/PhysicsWorld';
-import { createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
-import { CAR } from './VehiclePhysics';
+import { BIKE_GROUND, createTwoWheelerModel, createVehicleModel, disposeVehicleModel, MODEL_GROUND_OFFSET, type VehicleVisual } from './VehicleModel';
+import { SPECS, type VehicleKind } from './VehiclePhysics';
+import { createCharacter, disposeCharacter } from '../player/CharacterModels';
+import type { PlayerRig } from '../player/PlayerModel';
+import { seatRider } from './Rider';
+
+/** Share of traffic that is motorbikes and bicycles (common on Sittwe's streets). */
+const MOTORBIKE_SHARE = 0.32;
+const BICYCLE_SHARE = 0.16;
+const BIKE_COLORS = [0xb3202a, 0x1d1f24, 0x1f4fa8, 0xe8e6e0, 0x2f7d4f, 0x6b4a2f];
+
+/** Body height above the road for each kind (cars and bikes have different models). */
+const rideHeight = (k: VehicleKind) => GROUND_Y + (k === 'car' ? MODEL_GROUND_OFFSET : -BIKE_GROUND);
 
 /**
  * Ambient traffic: randomly spawned cars that drive along the real OSM road
@@ -20,6 +31,9 @@ const COLORS = [0xd8d3c8, 0xf2f2ee, 0x2f2f33, 0xb52b2b, 0x2a5aa8, 0x8f969c, 0xe7
 const CRUISE: Record<string, number> = { primary: 11, secondary: 10, tertiary: 8.5, residential: 6.5, service: 4.5, track: 4 };
 
 interface TrafficCar {
+  kind: VehicleKind;
+  rider: PlayerRig | null;
+  pedal: number;
   visual: VehicleVisual;
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
@@ -57,9 +71,10 @@ export class TrafficSystem {
     return this.cars.map((c) => c.collider);
   }
 
-  private laneOffset(edge: number): number {
+  private laneOffset(edge: number, kind: VehicleKind = 'car'): number {
     const w = DEFAULT_ROAD_WIDTH[this.graph.edgeClass(edge)] ?? 5;
-    return Math.max(1.0, w / 4);
+    // Bikes keep to the outer edge of the lane.
+    return Math.max(1.0, w / 4) + (kind === 'car' ? 0 : Math.min(0.9, w / 8));
   }
 
   /** Lane position for a car on edge from→to at distance d. */
@@ -72,7 +87,7 @@ export class TrafficSystem {
     const t = c.len > 0 ? c.dist / c.len : 0;
     const dx = (bx - ax) / (c.len || 1);
     const dz = (bz - az) / (c.len || 1);
-    const off = this.laneOffset(c.edge);
+    const off = this.laneOffset(c.edge, c.kind);
     // Right-hand normal of the travel direction (X = east, Z = south).
     c.x = ax + (bx - ax) * t + -dz * off;
     c.z = az + (bz - az) * t + dx * off;
@@ -109,14 +124,17 @@ export class TrafficSystem {
       if (dist < 60) continue;
       if (this.cars.some((c) => Math.hypot(c.x - g.x(node), c.z - g.z(node)) < 18)) continue;
       if (!isFree(g.x(node), g.z(node))) continue;
-      const color = COLORS[Math.floor(this.rand() * COLORS.length)]!;
-      const visual = createVehicleModel(color);
-      const y = GROUND_Y + MODEL_GROUND_OFFSET;
+      const roll = this.rand();
+      const kind: VehicleKind = roll < MOTORBIKE_SHARE ? 'motorbike' : roll < MOTORBIKE_SHARE + BICYCLE_SHARE ? 'bicycle' : 'car';
+      const color = kind === 'car' ? COLORS[Math.floor(this.rand() * COLORS.length)]! : BIKE_COLORS[Math.floor(this.rand() * BIKE_COLORS.length)]!;
+      const visual = kind === 'car' ? createVehicleModel(color) : createTwoWheelerModel(kind, color);
+      const y = rideHeight(kind);
       const body = this.physics.world.createRigidBody(this.physics.R.RigidBodyDesc.kinematicPositionBased().setTranslation(g.x(node), y, g.z(node)));
-      const he = CAR.halfExtents;
-      const collider = this.physics.world.createCollider(this.physics.R.ColliderDesc.cuboid(he.x, he.y, he.z).setTranslation(0, 0.25, 0).setCollisionGroups(Groups.vehicle), body);
+      const spec = SPECS[kind];
+      const he = spec.halfExtents;
+      const collider = this.physics.world.createCollider(this.physics.R.ColliderDesc.cuboid(he.x, he.y, he.z).setTranslation(0, spec.colliderY, 0).setCollisionGroups(Groups.vehicle), body);
       const len = Math.hypot(g.x(to) - g.x(node), g.z(to) - g.z(node));
-      const c: TrafficCar = { visual, body, collider, from: node, to, edge, dist: 0, len, speed: 0, yaw: Math.atan2(-(g.x(to) - g.x(node)), -(g.z(to) - g.z(node))), x: 0, z: 0, spin: 0, color, stuck:0 };
+      const c: TrafficCar = { kind, rider: null, pedal: this.rand() * 6, visual, body, collider, from: node, to, edge, dist: 0, len, speed: 0, yaw: Math.atan2(-(g.x(to) - g.x(node)), -(g.z(to) - g.z(node))), x: 0, z: 0, spin: 0, color, stuck:0 };
       this.pose(c);
       if(this.physics.world.intersectionWithShape({x:c.x,y:y+.25,z:c.z},{x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},new this.physics.R.Cuboid(1.1,.4,2.6),undefined,Groups.vehicle,collider,body)||this.cars.some(o=>Math.hypot(o.x-c.x,o.z-c.z)<9)) {
         disposeVehicleModel(visual);this.physics.world.removeRigidBody(body);continue;
@@ -124,6 +142,12 @@ export class TrafficSystem {
       body.setTranslation({x:c.x,y,z:c.z},true);
       body.setRotation({x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},true);
       this.scene.add(visual.root);
+      if (kind !== 'car') {
+        // A local rider (no name tag) on every bike.
+        c.rider = createCharacter(this.rand() < 0.6 ? 'boy' : 'girl', ' ');
+        c.rider.nameTag.visible = false;
+        this.scene.add(c.rider.root);
+      }
       this.cars.push(c);
       return;
     }
@@ -133,14 +157,15 @@ export class TrafficSystem {
     const c = this.cars[i]!;
     this.scene.remove(c.visual.root);
     disposeVehicleModel(c.visual);
+    if (c.rider) { this.scene.remove(c.rider.root); disposeCharacter(c.rider); }
     this.physics.world.removeRigidBody(c.body);
     this.cars.splice(i, 1);
   }
 
   /** Removes a traffic car and returns its pose/colour (used when the player takes it over). */
-  takeOver(i: number): { x: number; z: number; yaw: number; color: number } {
+  takeOver(i: number): { x: number; z: number; yaw: number; color: number; kind: VehicleKind } {
     const c = this.cars[i]!;
-    const out = { x: c.x, z: c.z, yaw: c.yaw, color: c.color };
+    const out = { x: c.x, z: c.z, yaw: c.yaw, color: c.color, kind: c.kind };
     this.despawn(i);
     return out;
   }
@@ -180,6 +205,8 @@ export class TrafficSystem {
       const previous={from:c.from,to:c.to,edge:c.edge,dist:c.dist,len:c.len,x:c.x,z:c.z,yaw:c.yaw};
       const cls = this.graph.edgeClass(c.edge);
       let target = CRUISE[cls] ?? 6;
+      if (c.kind === 'bicycle') target = Math.min(target, 4.2);
+      else if (c.kind === 'motorbike') target *= 1.05;
       // Look ahead for obstacles in a cone in front of the car.
       const fx = -Math.sin(c.yaw);
       const fz = -Math.cos(c.yaw);
@@ -190,7 +217,8 @@ export class TrafficSystem {
         const rz = oz - c.z;
         const ahead = rx * fx + rz * fz;
         const side = Math.abs(rx * -fz + rz * fx);
-        if (ahead > 0 && ahead < 14 && side < 2.2) target = Math.min(target, Math.max(0, (ahead - 6) * 1.2));
+        const gap = c.kind === 'car' ? 6 : 3.5;
+        if (ahead > 0 && ahead < 14 && side < (c.kind === 'car' ? 2.2 : 1.3)) target = Math.min(target, Math.max(0, (ahead - gap) * 1.2));
       }
       // Slow down before sharp turns at the end of the edge.
       if (c.len - c.dist < 10) target = Math.min(target, 5);
@@ -211,11 +239,12 @@ export class TrafficSystem {
       let blocked=false;
       for(let i=1;i<=samples;i++) {
         const x=previous.x+(c.x-previous.x)*i/samples,z=previous.z+(c.z-previous.z)*i/samples;
-        const hit=this.physics.world.intersectionWithShape({x,y:GROUND_Y+MODEL_GROUND_OFFSET+.25,z},{x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},new this.physics.R.Cuboid(1.02,.36,2.45),undefined,Groups.vehicle,c.collider,c.body);
+        const he=SPECS[c.kind].halfExtents;
+        const hit=this.physics.world.intersectionWithShape({x,y:rideHeight(c.kind)+SPECS[c.kind].colliderY,z},{x:0,y:Math.sin(c.yaw/2),z:0,w:Math.cos(c.yaw/2)},new this.physics.R.Cuboid(he.x+.12,he.y+.04,he.z+.3),undefined,Groups.vehicle,c.collider,c.body);
         if(hit){blocked=true;break;}
       }
       if(blocked){Object.assign(c,previous);c.speed=0;c.stuck+=dt}else c.stuck=c.speed<.1?c.stuck+dt:0;
-      const y = GROUND_Y + MODEL_GROUND_OFFSET;
+      const y = rideHeight(c.kind);
       c.body.setNextKinematicTranslation({ x: c.x, y, z: c.z });
       c.body.setNextKinematicRotation({ x: 0, y: Math.sin(c.yaw / 2), z: 0, w: Math.cos(c.yaw / 2) });
     }
@@ -224,12 +253,19 @@ export class TrafficSystem {
   update(dt: number, night: boolean): void {
     for (const c of this.cars) {
       const root = c.visual.root;
-      root.position.set(c.x, GROUND_Y + MODEL_GROUND_OFFSET, c.z);
+      root.position.set(c.x, rideHeight(c.kind), c.z);
       root.rotation.set(0, c.yaw, 0);
-      c.spin -= (c.speed / CAR.wheelRadius) * dt;
+      const spec = SPECS[c.kind];
+      c.spin -= (c.speed / spec.wheelRadius) * dt;
       for (const w of c.visual.wheels) {
-        w.pivot.position.y = CAR.wheelY - CAR.suspensionRest * 0.8;
+        if (c.kind === 'car') w.pivot.position.y = spec.wheelY - spec.suspensionRest * 0.8;
         w.spin.rotation.x = c.spin;
+      }
+      if (c.rider) {
+        c.pedal += dt * c.speed * 1.6;
+        if (c.visual.crank) c.visual.crank.rotation.x = -c.pedal / 1.6;
+        seatRider(c.rider, c.visual, c.kind as 'motorbike' | 'bicycle', c.pedal);
+        c.rider.root.visible = root.visible;
       }
       c.visual.headMat.emissiveIntensity = night ? 2.2 : 0;
       c.visual.brakeMat.emissiveIntensity = c.speed < 2 ? 2 : night ? 0.8 : 0.15;

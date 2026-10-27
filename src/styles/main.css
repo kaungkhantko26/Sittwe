@@ -369,3 +369,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {o
 .tag.fest { background: rgba(255,150,50,.25); }
 .tag.done { background: rgba(110,210,140,.25); }
 @media (max-width:600px) { .mission-badge { top: 186px; left: 12px; font-size: 10px; } .mission-tracker { right: 8px; top: auto; bottom: 150px; width: min(240px, calc(100vw - 16px)); font-size: 12px; } }
+
+/* Hide and seek: the seeker's screen goes dark while everyone hides. */
+.seek-blindfold { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: radial-gradient(circle, rgba(8,10,14,.96), rgba(0,0,0,.99)); color: #f5c24b; font-size: 34px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }
+.seek-blindfold.hidden { display: none; }
+.tag.friends { background: rgba(110,170,255,.25); }

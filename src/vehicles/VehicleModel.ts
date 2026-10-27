@@ -14,6 +14,10 @@ export interface VehicleVisual {
   rotors: THREE.Group[];
   thrustMat: THREE.MeshStandardMaterial | null;
   thrusts:THREE.Mesh[];
+  /** Bicycle pedal crank (spun while pedalling). */
+  crank?: THREE.Group;
+  /** Seat top in body space, for placing the rider. */
+  seat?: THREE.Vector3;
 }
 
 const WHEEL_RADIUS = 0.34;
@@ -180,4 +184,119 @@ export function disposeVehicleModel(visual:VehicleVisual):void {
   const geometries=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>();
   visual.root.traverse(o=>{const m=o as THREE.Mesh;if(!m.isMesh)return;geometries.add(m.geometry);for(const mat of Array.isArray(m.material)?m.material:[m.material])materials.add(mat)});
   geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());
+}
+
+/** Ground level below the body origin for two-wheelers (wheel contact at rest). */
+export const BIKE_GROUND = -0.51;
+
+function tube(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material): THREE.Mesh {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 6), mat);
+  m.position.copy(a).addScaledVector(d, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  m.castShadow = true;
+  return m;
+}
+
+function bikeWheel(radius: number, tyre: number, rimMat: THREE.Material, spokes: number): { pivot: THREE.Group; spin: THREE.Group } {
+  const pivot = new THREE.Group();
+  const spin = new THREE.Group();
+  const tire = new THREE.Mesh(new THREE.TorusGeometry(radius - tyre, tyre, 6, 20).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1a1b1d, roughness: 0.9 }));
+  tire.castShadow = true;
+  spin.add(tire);
+  for (let i = 0; i < spokes; i++) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.012, (radius - tyre) * 2, 0.012), rimMat);
+    s.rotation.x = (i / spokes) * Math.PI;
+    spin.add(s);
+  }
+  spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.1, 8).rotateZ(Math.PI / 2), rimMat));
+  pivot.add(spin);
+  return { pivot, spin };
+}
+
+/**
+ * Motorbike (underbone, the common 110 cc type in Myanmar) or bicycle, built
+ * from primitives. Faces -Z; same VehicleVisual shape as cars, with two real
+ * wheels (entries 1 and 3 are empty placeholders for the right-hand pair).
+ */
+export function createTwoWheelerModel(kind: 'motorbike' | 'bicycle', color: number): VehicleVisual {
+  const root = new THREE.Group();
+  root.name = kind;
+  const shell = new THREE.Group();
+  shell.position.y = BIKE_GROUND;
+  root.add(shell);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.4 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x202326, roughness: 0.7 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xc9cdd1, roughness: 0.25, metalness: 0.9 });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xf6f3e8, emissive: new THREE.Color(0xfff2c8), emissiveIntensity: 0 });
+  const brakeMat = new THREE.MeshStandardMaterial({ color: 0x7a1010, emissive: new THREE.Color(0xff2020), emissiveIntensity: 0.15 });
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, rx = 0) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    b.position.set(x, y, z);
+    b.rotation.x = rx;
+    b.castShadow = true;
+    shell.add(b);
+    return b;
+  };
+  let crank: THREE.Group | undefined;
+  let seat: THREE.Vector3;
+  const wheelPositions: Array<[number, number]> = [];
+  if (kind === 'motorbike') {
+    const r = 0.3;
+    wheelPositions.push([-0.66, r], [0.64, r]);
+    // Underbone frame and body panels.
+    shell.add(tube(V(0, 0.95, -0.5), V(0, 0.4, -0.08), 0.045, dark), tube(V(0, 0.4, -0.08), V(0, 0.55, 0.5), 0.045, dark));
+    box(0.44, 0.5, 0.1, paint, 0, 0.58, -0.4, 0.25); // leg shield
+    box(0.3, 0.3, 0.66, paint, 0, 0.62, 0.36); // rear body
+    box(0.28, 0.09, 0.64, new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.85 }), 0, 0.8, 0.26); // seat
+    box(0.2, 0.22, 0.32, dark, 0, 0.36, 0.04); // engine
+    shell.add(tube(V(0.14, 0.3, 0.1), V(0.15, 0.36, 0.72), 0.04, chrome)); // exhaust
+    box(0.16, 0.04, 0.5, paint, 0, r + 0.33, 0.66); // rear mudguard
+    box(0.12, 0.04, 0.32, paint, 0, r + 0.32, -0.7, -0.3); // front mudguard
+    // Fork, handlebars and lights.
+    shell.add(tube(V(0.07, r, -0.66), V(0.06, 0.98, -0.52), 0.025, chrome), tube(V(-0.07, r, -0.66), V(-0.06, 0.98, -0.52), 0.025, chrome));
+    shell.add(tube(V(-0.36, 1.03, -0.48), V(0.36, 1.03, -0.48), 0.022, chrome));
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.08, 12).rotateX(Math.PI / 2), headMat);
+    lamp.position.set(0, 0.95, -0.6);
+    shell.add(lamp);
+    box(0.16, 0.06, 0.04, brakeMat, 0, 0.66, 0.7);
+    for (const sx of [-1, 1]) box(0.05, 0.04, 0.03, new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a00, emissiveIntensity: 0.4 }), sx * 0.12, 0.72, 0.7);
+    seat = V(0, 0.85 + BIKE_GROUND, 0.22);
+  } else {
+    const r = 0.34;
+    wheelPositions.push([-0.55, r], [0.55, r]);
+    const R = V(0, r, 0.55), F = V(0, r, -0.55), BB = V(0, 0.3, 0.05), S = V(0, 0.86, 0.17), H = V(0, 0.9, -0.4);
+    shell.add(tube(S, BB, 0.02, paint), tube(BB, R, 0.016, paint), tube(S, R, 0.014, paint), tube(H, BB, 0.022, paint), tube(S.clone().setY(0.82), H.clone().setY(0.84), 0.018, paint), tube(H, F, 0.016, chrome));
+    shell.add(tube(V(-0.27, 1.02, -0.36), V(0.27, 1.02, -0.36), 0.015, chrome), tube(H, V(0, 1.02, -0.36), 0.016, chrome));
+    box(0.14, 0.05, 0.24, new THREE.MeshStandardMaterial({ color: 0x2b2420, roughness: 0.8 }), 0, 0.92, 0.17); // saddle
+    // Front basket (common on Sittwe city bikes).
+    const basket = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.26), new THREE.MeshStandardMaterial({ color: 0x9a8a6a, roughness: 0.9, wireframe: true }));
+    basket.position.set(0, 0.92, -0.62);
+    shell.add(basket);
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.06, 10).rotateX(Math.PI / 2), headMat);
+    lamp.position.set(0, 0.84, -0.5);
+    shell.add(lamp);
+    box(0.06, 0.04, 0.02, brakeMat, 0, 0.72, 0.42);
+    // Pedal crank: spun while pedalling.
+    crank = new THREE.Group();
+    crank.position.copy(BB).add(V(0, BIKE_GROUND, 0));
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.17, 0.03), chrome);
+      arm.position.set(side * 0.09, side * 0.085, 0);
+      const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.06), dark);
+      pedal.position.set(side * 0.12, side * 0.17, 0);
+      crank.add(arm, pedal);
+    }
+    root.add(crank);
+    seat = V(0, 0.95 + BIKE_GROUND, 0.15);
+  }
+  const rim = kind === 'motorbike' ? dark : chrome;
+  const front = bikeWheel(wheelPositions[0]![1], kind === 'motorbike' ? 0.06 : 0.025, rim, kind === 'motorbike' ? 3 : 8);
+  const rear = bikeWheel(wheelPositions[1]![1], kind === 'motorbike' ? 0.065 : 0.025, rim, kind === 'motorbike' ? 3 : 8);
+  front.pivot.position.set(0, wheelPositions[0]![1] + BIKE_GROUND, wheelPositions[0]![0]);
+  rear.pivot.position.set(0, wheelPositions[1]![1] + BIKE_GROUND, wheelPositions[1]![0]);
+  root.add(front.pivot, rear.pivot);
+  const empty = () => ({ pivot: new THREE.Group(), spin: new THREE.Group() });
+  return { root, wheels: [front, empty(), rear, empty()], brakeMat, headMat, rotors: [], thrustMat: null, thrusts: [], ...(crank ? { crank } : {}), seat };
 }

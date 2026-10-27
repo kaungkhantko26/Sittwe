@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import { BoatLook } from './BoatLook';
-import { createVehicleModel, disposeVehicleModel, type VehicleVisual } from './VehicleModel';
-import { CAR, VehiclePhysics, WHEEL_LAYOUT, type DriveInput } from './VehiclePhysics';
+import { createTwoWheelerModel, createVehicleModel, disposeVehicleModel, type VehicleVisual } from './VehicleModel';
+import { VehiclePhysics, type DriveInput, type VehicleKind } from './VehiclePhysics';
 
 /** A drivable car: physics + visuals + light state, with render interpolation. */
 export class Vehicle {
@@ -15,6 +15,11 @@ export class Vehicle {
   private readonly currQuat = new THREE.Quaternion();
   private readonly wheelSpin = [0, 0, 0, 0];
   private readonly boatLook: BoatLook;
+  /** Visual lean of two-wheelers, radians. */
+  lean = 0;
+  private readonly leanQ = new THREE.Quaternion();
+  /** +Z: a positive angle leans the top of the bike to the left. */
+  private static readonly ROLL_AXIS = new THREE.Vector3(0, 0, 1);
 
   constructor(
     world: PhysicsWorld,
@@ -23,9 +28,10 @@ export class Vehicle {
     z: number,
     yaw: number,
     readonly color: number,
+    readonly kind: VehicleKind = 'car',
   ) {
-    this.physics = new VehiclePhysics(world, x, z, yaw);
-    this.visual = createVehicleModel(color,true);
+    this.physics = new VehiclePhysics(world, x, z, yaw, kind);
+    this.visual = kind === 'car' ? createVehicleModel(color, true) : createTwoWheelerModel(kind, color);
     this.boatLook = new BoatLook(this.visual, color);
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
@@ -66,15 +72,24 @@ export class Vehicle {
     for(const rotor of this.visual.rotors)rotor.rotation.y+=dt*(this.physics.flying?75:12);
     if(this.visual.thrustMat)this.visual.thrustMat.emissiveIntensity=this.physics.flying?3:.6;
     const c = this.physics.controller;
+    const S = this.physics.spec;
+    const speed = this.physics.forwardSpeed();
     for (let i = 0; i < 4; i++) {
       const w = this.visual.wheels[i]!;
-      const susp = c.wheelSuspensionLength(i) ?? CAR.suspensionRest;
+      const susp = c.wheelSuspensionLength(i) ?? S.suspensionRest;
       // Wheel centre in body space: connection point minus suspension length (down).
-      w.pivot.position.set(WHEEL_LAYOUT[i]![0], CAR.wheelY - susp, WHEEL_LAYOUT[i]![1]);
+      w.pivot.position.set(S.twoWheeler ? 0 : S.layout[i]![0], S.wheelY - susp, S.layout[i]![1]);
       w.pivot.rotation.y = i < 2 ? (c.wheelSteering(i) ?? 0) : 0;
       // Spin from forward speed (visual only).
-      this.wheelSpin[i]! -= (this.physics.forwardSpeed() / CAR.wheelRadius) * dt;
+      this.wheelSpin[i]! -= (speed / S.wheelRadius) * dt;
       w.spin.rotation.x = this.wheelSpin[i]!;
+    }
+    if (S.twoWheeler) {
+      // Lean into turns (visual: the physics body stays upright).
+      const target = this.physics.steering * Math.min(1, Math.abs(speed) / 6) * 0.55 * Math.sign(speed || 1);
+      this.lean += (target - this.lean) * Math.min(1, dt * 6);
+      root.quaternion.multiply(this.leanQ.setFromAxisAngle(Vehicle.ROLL_AXIS, this.lean));
+      if (this.visual.crank && this.physics.throttle > 0) this.visual.crank.rotation.x -= dt * (2 + Math.abs(speed) * 1.4);
     }
     this.boatLook.update(dt, this.physics.boat, this.physics.forwardSpeed());
     this.visual.brakeMat.emissiveIntensity = this.physics.braking ? 2.6 : this.headlightsOn ? 0.8 : 0.15;

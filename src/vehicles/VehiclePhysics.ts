@@ -65,6 +65,49 @@ export const WHEEL_LAYOUT: Array<[number, number]> = [
 
 export type Gear = 'P' | 'D' | 'R' | 'N';
 
+export type VehicleKind = 'car' | 'motorbike' | 'bicycle';
+
+/** Size, mass, power and handling of one kind of vehicle. */
+export interface VehicleSpec {
+  kind: VehicleKind;
+  mass: number;
+  halfExtents: { x: number; y: number; z: number };
+  wheelRadius: number;
+  suspensionRest: number;
+  wheelY: number;
+  maxEngineForce: number;
+  maxReverseSpeed: number;
+  topSpeed: number;
+  brakeForce: number;
+  handbrakeForce: number;
+  maxSteer: number;
+  minSteer: number;
+  /** Wheel contact points FL, FR, RL, RR (two-wheelers use a narrow pair per axle). */
+  layout: Array<[number, number]>;
+  inertia: { x: number; y: number; z: number };
+  colliderY: number;
+  /** Flying-car rotor pods, flight and boat mode (cars only). */
+  amphibious: boolean;
+  /** Kept upright by the rider; leans visually instead of rolling. */
+  twoWheeler: boolean;
+}
+
+export const SPECS: Record<VehicleKind, VehicleSpec> = {
+  car: { kind: 'car', ...CAR, layout: WHEEL_LAYOUT, inertia: { x: 1900, y: 2100, z: 900 }, colliderY: 0.25, amphibious: true, twoWheeler: false },
+  // Underbone motorbike (the common 110 cc type in Myanmar) with rider, ~230 kg.
+  motorbike: {
+    kind: 'motorbike', mass: 230, halfExtents: { x: 0.32, y: 0.36, z: 0.95 }, wheelRadius: 0.3, suspensionRest: 0.26, wheelY: 0.05,
+    maxEngineForce: 520, maxReverseSpeed: 2.5, topSpeed: 21, brakeForce: 7, handbrakeForce: 12, maxSteer: 0.55, minSteer: 0.12,
+    layout: [[-0.13, -0.66], [0.13, -0.66], [-0.13, 0.64], [0.13, 0.64]], inertia: { x: 70, y: 60, z: 28 }, colliderY: 0.3, amphibious: false, twoWheeler: true,
+  },
+  // City bicycle with rider, ~90 kg, pedalled.
+  bicycle: {
+    kind: 'bicycle', mass: 90, halfExtents: { x: 0.28, y: 0.32, z: 0.85 }, wheelRadius: 0.34, suspensionRest: 0.22, wheelY: 0.05,
+    maxEngineForce: 95, maxReverseSpeed: 1.5, topSpeed: 7.5, brakeForce: 2.6, handbrakeForce: 5, maxSteer: 0.6, minSteer: 0.18,
+    layout: [[-0.1, -0.55], [0.1, -0.55], [-0.1, 0.55], [0.1, 0.55]], inertia: { x: 28, y: 24, z: 11 }, colliderY: 0.3, amphibious: false, twoWheeler: true,
+  },
+};
+
 export class VehiclePhysics {
   readonly body: RAPIER.RigidBody;
   readonly collider: RAPIER.Collider;
@@ -80,15 +123,20 @@ export class VehiclePhysics {
   private boatYaw = 0;
   private boatTime = 0;
 
+  readonly spec: VehicleSpec;
+
   constructor(
     private readonly physics: PhysicsWorld,
     x: number,
     z: number,
     yaw: number,
+    kind: VehicleKind = 'car',
   ) {
+    this.spec = SPECS[kind];
+    const S = this.spec;
     const R = physics.R;
     const half = Math.sin(yaw / 2);
-    const y = GROUND_Y + CAR.suspensionRest + CAR.wheelRadius + 0.15;
+    const y = GROUND_Y + S.suspensionRest + S.wheelRadius + 0.15;
     this.body = physics.world.createRigidBody(
       R.RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
@@ -98,24 +146,24 @@ export class VehiclePhysics {
         .setCanSleep(true)
         .setCcdEnabled(true),
     );
-    const he = CAR.halfExtents;
+    const he = S.halfExtents;
     // Lowered centre of mass and generous roll inertia for stability.
     this.collider = physics.world.createCollider(
       R.ColliderDesc.cuboid(he.x, he.y, he.z)
-        .setTranslation(0, 0.25, 0)
-        .setMassProperties(CAR.mass, { x: 0, y: -0.15, z: 0 }, { x: 1900, y: 2100, z: 900 }, { x: 0, y: 0, z: 0, w: 1 })
+        .setTranslation(0, S.colliderY, 0)
+        .setMassProperties(S.mass, { x: 0, y: S.twoWheeler ? -0.2 : -0.15, z: 0 }, S.inertia, { x: 0, y: 0, z: 0, w: 1 })
         .setFriction(0.4)
         .setRestitution(0.05)
         .setCollisionGroups(Groups.vehicle),
       this.body,
     );
     // Rotor pods are physical too, so the wide flying design cannot pass through walls or cars.
-    for(const x of [-2.05,2.05])for(const z of [-1.4,1.4])physics.world.createCollider(R.ColliderDesc.ball(.43).setTranslation(x,.1,z).setDensity(0).setCollisionGroups(Groups.vehicle),this.body);
+    if(S.amphibious)for(const x of [-2.05,2.05])for(const z of [-1.4,1.4])physics.world.createCollider(R.ColliderDesc.ball(.43).setTranslation(x,.1,z).setDensity(0).setCollisionGroups(Groups.vehicle),this.body);
     this.controller = physics.world.createVehicleController(this.body);
     this.controller.indexUpAxis = 1;
     this.controller.setIndexForwardAxis = 2;
-    WHEEL_LAYOUT.forEach(([wx, wz], i) => {
-      this.controller.addWheel({ x: wx, y: CAR.wheelY, z: wz }, { x: 0, y: -1, z: 0 }, { x: 1, y: 0, z: 0 }, CAR.suspensionRest, CAR.wheelRadius);
+    S.layout.forEach(([wx, wz], i) => {
+      this.controller.addWheel({ x: wx, y: S.wheelY, z: wz }, { x: 0, y: -1, z: 0 }, { x: 1, y: 0, z: 0 }, S.suspensionRest, S.wheelRadius);
       this.controller.setWheelSuspensionStiffness(i, 32);
       this.controller.setWheelSuspensionCompression(i, 2.6);
       this.controller.setWheelSuspensionRelaxation(i, 3.4);
@@ -154,7 +202,7 @@ export class VehiclePhysics {
     this.boat = false;
     this.body.setGravityScale(1, true);
     const p = this.body.translation();
-    this.body.setTranslation({ x: p.x, y: Math.max(p.y, GROUND_Y + CAR.suspensionRest + CAR.wheelRadius), z: p.z }, true);
+    this.body.setTranslation({ x: p.x, y: Math.max(p.y, GROUND_Y + this.spec.suspensionRest + this.spec.wheelRadius), z: p.z }, true);
   }
 
   private sail(input: DriveInput, dt: number, active: boolean): void {
@@ -223,7 +271,7 @@ export class VehiclePhysics {
 
   /** Applies driver input; call once per fixed step before world.step(). */
   drive(input: DriveInput, dt: number, active: boolean): void {
-    if(active && input.lift && !this.flying){this.leaveBoat();this.toggleFlight();}
+    if(active && input.lift && !this.flying && this.spec.amphibious){this.leaveBoat();this.toggleFlight();}
     if(this.flying){this.fly(input,dt,active);return;}
     if(this.boat){this.sail(input,dt,active);return;}
     const c = this.controller;
@@ -234,27 +282,27 @@ export class VehiclePhysics {
     if (!active) {
       // Parked: hold with brakes.
       this.gear = 'P';
-      brake = CAR.brakeForce * 0.6;
+      brake = this.spec.brakeForce * 0.6;
     } else {
       const thr = input.throttle;
       const brk = input.brake;
       if (thr > 0 && v > -0.5) {
         this.gear = 'D';
-        const f = Math.max(0, 1 - (v / CAR.topSpeed) ** 2);
-        engine = CAR.maxEngineForce * thr * f;
+        const f = Math.max(0, 1 - (v / this.spec.topSpeed) ** 2);
+        engine = this.spec.maxEngineForce * thr * f;
       } else if (thr > 0 && v <= -0.5) {
         // Throttle while rolling backwards = brake.
-        brake = CAR.brakeForce * thr;
+        brake = this.spec.brakeForce * thr;
         this.braking = true;
       }
       if (brk > 0) {
         if (v > 0.8) {
-          brake = CAR.brakeForce * brk;
+          brake = this.spec.brakeForce * brk;
           this.braking = true;
         } else {
           this.gear = 'R';
-          const f = Math.max(0, 1 - (-v / CAR.maxReverseSpeed) ** 2);
-          engine = -CAR.maxEngineForce * 0.7 * brk * f;
+          const f = Math.max(0, 1 - (-v / this.spec.maxReverseSpeed) ** 2);
+          engine = -this.spec.maxEngineForce * 0.7 * brk * f;
         }
       }
       if (thr === 0 && brk === 0) {
@@ -266,7 +314,7 @@ export class VehiclePhysics {
     }
     // Speed-sensitive steering with smoothing.
     const speedT = Math.min(1, Math.abs(v) / 22);
-    const maxSteer = CAR.maxSteer + (CAR.minSteer - CAR.maxSteer) * speedT;
+    const maxSteer = this.spec.maxSteer + (this.spec.minSteer - this.spec.maxSteer) * speedT;
     const target = input.steer * maxSteer;
     const rate = (input.steer === 0 ? 3.5 : 2.4) * dt;
     this.steer += Math.max(-rate, Math.min(rate, target - this.steer));
@@ -276,13 +324,24 @@ export class VehiclePhysics {
     for (let i = 0; i < 4; i++) {
       c.setWheelEngineForce(i, i >= 2 ? engine : 0);
       let b = brake;
-      if (active && input.handbrake && i >= 2) b = CAR.handbrakeForce;
+      if (active && input.handbrake && i >= 2) b = this.spec.handbrakeForce;
       c.setWheelBrake(i, b);
       // Handbrake lets the rear slide.
       c.setWheelFrictionSlip(i, active && input.handbrake && i >= 2 ? 1.1 : i < 2 ? 3.2 : 3.0);
     }
     if (active && input.handbrake) this.braking = true;
     c.updateVehicle(dt, this.physics.R.QueryFilterFlags.EXCLUDE_DYNAMIC | this.physics.R.QueryFilterFlags.EXCLUDE_KINEMATIC, Groups.wheelRay);
+    if (this.spec.twoWheeler) this.keepUpright();
+  }
+
+  /** Two-wheelers: the rider balances, so roll is removed (the model leans visually instead). */
+  private keepUpright(): void {
+    const q = this.body.rotation();
+    const fy = 2 * (q.y * q.z - q.w * q.x); // y of the -Z forward vector
+    const pitch = Math.asin(Math.max(-1, Math.min(1, -fy)));
+    this.body.setRotation(eulerYXZ(pitch, this.yaw(), 0), true);
+    const av = this.body.angvel();
+    this.body.setAngvel({ x: 0, y: av.y, z: 0 }, true);
   }
 
   get steering(): number {
@@ -299,7 +358,7 @@ export class VehiclePhysics {
   /** Puts the car upright at (x, z) facing `yaw`, at rest. */
   reset(x: number, z: number, yaw: number): void {
     this.flying=false;this.landing=false;this.boat=false;this.body.setGravityScale(1,true);
-    const y = GROUND_Y + CAR.suspensionRest + CAR.wheelRadius + 0.3;
+    const y = GROUND_Y + this.spec.suspensionRest + this.spec.wheelRadius + 0.3;
     this.body.setTranslation({ x, y, z }, true);
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);

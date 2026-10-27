@@ -128,7 +128,7 @@ export class HUD {
   refreshText(driving: boolean): void {
     const rows = driving
       ? [['W / S', 'Accelerate / Brake · Reverse'], ['A / D', 'Steer'], ['Space', 'Take off / Ascend'], ['Ctrl', 'Descend'], ['G', 'Flight / Land'], ['X', 'Handbrake'], ['Shift', 'Flight boost'], ['L', 'Headlights'], ['C', 'Camera'], ['R', 'Reset car'], ['F', 'Exit vehicle'], ['M', 'Map'], ['Esc', 'Pause']]
-      : [['W A S D', 'Move'], ['Shift', 'Sprint'], ['Space', 'Jump'], ['Mouse', 'Look'], ['F', 'Enter vehicle'], ['V', 'Spawn car'], ['J', 'Dance'], ['/', 'Search'], ['C', 'Camera'], ['M', 'Map'], ['Esc', 'Pause']];
+      : [['W A S D', 'Move'], ['Shift', 'Sprint'], ['Space', 'Jump'], ['Mouse', 'Look'], ['F', 'Enter vehicle'], ['V', 'Car'], ['B / N', 'Motorbike / bicycle'], ['K', 'Missions'], ['J', 'Dance'], ['/', 'Search'], ['C', 'Camera'], ['M', 'Map'], ['Esc', 'Pause']];
     this.hints.innerHTML = '';
     for (const [k, v] of rows) this.hints.append(h('div.hint-row', {}, h('kbd', {}, k!), h('span', {}, v!)));
     this.exitHint.textContent = t('exitVehicle');

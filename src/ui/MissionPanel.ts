@@ -26,7 +26,7 @@ export function missionPanel(d: MissionDirector, lang: Lang, inRoom: boolean, is
     list.append(h(`article.mission-card${m.season === 'thadingyut' ? '.festival' : ''}${locked ? '.locked' : ''}`, {},
       h('div.mission-head', {}, h('span.mission-icon', {}, m.icon), h('div', {}, h('h3', {}, pick(m.title)),
         h('div.mission-tags', {},
-          m.social ? h('span.tag', {}, '👥 Best with friends') : null,
+          m.minPlayers ? h('span.tag.friends', {}, `👥 Friends only (${m.minPlayers}+)`) : m.social ? h('span.tag', {}, '👥 Best with friends') : null,
           m.season === 'thadingyut' ? h('span.tag.fest', {}, '🏮 Thadingyut') : null,
           h('span.tag', {}, `Reward ${ks(m.reward)}`),
           m.budget ? h('span.tag', {}, `Budget ${ks(m.budget)}`) : null,

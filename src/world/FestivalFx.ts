@@ -94,7 +94,7 @@ export class FestivalFx {
     } else if (fx === 'lamps') {
       if (nearSite) { this.litSites.add(nearSite.id); this.lampSites.delete(nearSite.id); }
     }
-    const emoji = { cheers: '🍻', feast: '🦐', gadaw: '🙏', lamps: '🪔', lanterns: '🏮', fireworks: '🎆' }[fx];
+    const emoji = ({ cheers: '🍻', feast: '🦐', gadaw: '🙏', lamps: '🪔', lanterns: '🏮', fireworks: '🎆', campfire: '🔥', dance: '💃', pickup: '✨', tag: '🏃', sit: '🪵' } as Record<FxKind, string>)[fx];
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture(emoji), transparent: true, depthWrite: false }));
     sprite.position.set(x, 3, z);
     sprite.scale.setScalar(1.6);
